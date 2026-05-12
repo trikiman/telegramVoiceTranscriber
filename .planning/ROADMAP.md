@@ -12,12 +12,13 @@ From an empty repo to a hardened systemd-managed userbot on the Oracle VPS that 
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Bootstrap & Session** — Repo scaffold, typed config, Telethon client wrapper, interactive one-time login
-- [ ] **Phase 2: Audio Pipeline** — FFmpeg-based OGG/Opus → 16 kHz mono PCM converter with duration guards
-- [ ] **Phase 3: Transcription Engine** — Warm-loaded faster-whisper small int8 CPU with RU/EN auto-detect and VAD, run off-loop in a single-thread executor
-- [ ] **Phase 4: Event Wiring & Reply UX** — Listener + filter + queue + worker + placeholder/edit reply flow end to end
-- [ ] **Phase 5: Hardening** — Bounded queue drop policy, FloodWait + retry, graceful shutdown, structured privacy-safe logging, long-transcript splitting
-- [ ] **Phase 6: VPS Deployment** — Service user, filesystem layout, hardened systemd unit, model pre-download, journald verified, reboot survival
+- [x] **Phase 1: Bootstrap & Session** — Repo scaffold, typed config, Telethon client wrapper, interactive one-time login
+- [x] **Phase 2: Audio Pipeline** — FFmpeg-based OGG/Opus → 16 kHz mono PCM converter with duration guards
+- [x] **Phase 3: Transcription Engine** — Pivoted from local faster-whisper to Groq whisper-large-v3-turbo with 6-key pool rotation
+- [x] **Phase 4: Event Wiring & Reply UX** — Listener + filter + queue + worker + placeholder/edit reply flow end to end
+- [x] **Phase 5: Hardening** — Bounded queue drop policy, FloodWait + retry, graceful shutdown, structured privacy-safe logging, long-transcript splitting
+- [x] **Phase 6: VPS Deployment** — Service user, filesystem layout, hardened systemd unit, journald verified, reboot survival — LIVE on 158.101.214.234
+- [ ] **Phase 7: Channel Digest (v1.1)** — LLM-filtered digest of subscribed channels, delivered to Saved Messages on a configurable schedule
 
 ## Phase Details
 
@@ -115,6 +116,25 @@ Plans:
 
 Plans:
 - [ ] 06-01: Service user + filesystem layout + hardened systemd unit + model pre-download + journald verification + backup/re-auth docs
+
+### Phase 7: Channel Digest (v1.1)
+**Goal**: An LLM-filtered digest of user-selected channels delivered as a single summary message to Saved Messages every N minutes, so the user can follow many channels without notification overload.
+**Depends on**: Phase 6 (deployment must be stable)
+**Requirements**: DIG-01, DIG-02, DIG-03, DIG-04, DIG-05, DIG-06, DIG-07, DIG-08, DIG-09
+**Success Criteria** (what must be TRUE):
+  1. User runs `/digest setup` in Saved Messages and is walked through selecting tracked channels, writing preferences, setting threshold, choosing delivery chat, and picking frequency
+  2. The bot records selected channels' new posts into a buffer as they arrive (zero LLM calls at ingest)
+  3. On a configurable schedule (default every 30 min), the bot batches the buffered posts into one Groq LLM call and receives per-post scores + one-line summaries
+  4. Posts scoring at or above the user's threshold are formatted into a digest message (grouped by channel, with direct links to originals) and sent to the configured delivery chat
+  5. Digest messages are skipped entirely if the batch contains no posts above threshold (no empty digests)
+  6. Commands `/digest pause`, `/digest resume`, `/digest now`, `/digest channels`, `/digest prefs`, `/digest stats`, `/digest unsub @channel` work as documented
+  7. Preferences, tracked-channel list, and dedupe cache persist across service restarts (stored in SQLite under `/var/lib/tg-voice-transcriber/digest.db`)
+  8. First subscription to a channel does not back-fill history — only posts from "now onwards" are scored
+  9. Token usage stays well under Groq free-tier quota for a user with ~50 tracked channels producing ~10k posts/day
+**Plans**: TBD
+
+Plans:
+- [ ] 07-01: SQLite schema + Groq LLM chat client + channel ingest listener + batched scoring task + digest formatter + `/digest` command handlers
 
 ## Progress
 

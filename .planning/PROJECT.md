@@ -2,31 +2,40 @@
 
 ## What This Is
 
-A personal Telegram userbot that runs under the user's own account and automatically transcribes incoming and outgoing voice notes in one-on-one chats. Transcriptions are posted as replies in the same chat so both sides can read them without relying on Telegram Premium. Built for someone who prefers text and receives voice messages in Russian and English.
+A personal Telegram userbot that runs under the user's own account, auto-transcribes incoming and outgoing voice notes in one-on-one chats, and delivers a curated digest of messages from subscribed channels. Transcriptions appear as in-place reply edits in the original chat; digests arrive as summaries in Saved Messages. Built for someone who prefers text and gets overwhelmed by both voice messages and channel notifications.
 
 ## Core Value
 
-Every DM voice note (incoming and outgoing) gets a readable Russian/English transcript posted as a reply within seconds, without any paid service.
+Every DM voice note gets a fast, accurate transcript within seconds, and the user only sees channel posts that actually matter to them.
+
+## Current Milestone: v1.1 — Smart Assistant
+
+**Goal:** Add AI-powered channel digest so the user can follow many channels without notification overload.
+
+**Target features:**
+- Channel digest: batched LLM relevance filtering every 30 min, one summary message instead of 200 pings
 
 ## Requirements
 
 ### Validated
 
-(None yet — ship to validate)
+- ✓ Authenticate as user's Telegram account with persistent session — v1.0 Phase 1
+- ✓ Listen for voice notes in 1-on-1 chats (incoming + outgoing) — v1.0 Phase 4
+- ✓ Transcribe voice notes via Groq whisper-large-v3-turbo with 6-key rotation pool — v1.0 Phase 3/5
+- ✓ Post transcripts as edited replies with ⏳ → final text flow — v1.0 Phase 4
+- ✓ Privacy-safe logging (hashed chat IDs, no transcript content at INFO) — v1.0 Phase 5
+- ✓ systemd deployment on Oracle VPS (158.101.214.234) — v1.0 Phase 6
 
 ### Active
 
-- [ ] Authenticate as the user's Telegram account (userbot, not bot API) and persist the session across restarts
-- [ ] Listen for new voice notes in one-on-one chats only (skip groups, channels, supergroups)
-- [ ] Transcribe incoming voice notes from the other party
-- [ ] Transcribe outgoing voice notes the user sends themselves
-- [ ] Support Russian and English with automatic language detection per message
-- [ ] Run transcription locally with faster-whisper using the `small` model
-- [ ] Post the transcript as a reply to the original voice note in the same chat
-- [ ] Handle voice notes longer than a few seconds without blocking other messages (queue/concurrency)
-- [ ] Deploy and run on the Oracle Ubuntu VPS (158.101.214.234) as a systemd service that auto-restarts and survives reboots
-- [ ] Keep transcription fully local — audio never leaves the VPS
-- [ ] Log errors and transcription outcomes to a file the user can tail
+- [ ] Background task collects new messages from user-selected channels into a buffer
+- [ ] Every N minutes (configurable), batch buffer is sent to Groq LLM for relevance scoring
+- [ ] LLM returns per-message scores against user's preferences, filtered to threshold
+- [ ] Filtered digest delivered to user's configured chat (default Saved Messages)
+- [ ] `/digest` command surface: setup, pause, resume, now, channels, prefs, stats, unsub
+- [ ] User preferences persisted in SQLite (no external DB)
+- [ ] Deduplication of near-duplicate posts across channels before scoring
+- [ ] No back-fill on first subscribe — digest starts from "now"
 
 ### Out of Scope
 
@@ -61,13 +70,16 @@ Every DM voice note (incoming and outgoing) gets a readable Russian/English tran
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Userbot instead of reply bot | Transparent UX in every DM, no forwarding step, user asked for this explicitly | — Pending |
-| Telethon over Pyrogram | Mature, widely used, good async support, good docs for event handlers | — Pending |
-| faster-whisper `small` model | Best quality-to-resource ratio on CPU-only VPS; handles RU + EN well | — Pending |
-| Transcript posted as reply in same chat | Matches user's stated preference over private log or Saved Messages | — Pending |
-| Scope limited to DMs and voice notes only for v1 | Keeps first milestone tight and shippable | — Pending |
-| Deploy as systemd service on Oracle VPS | Auto-restart, survives reboot, standard Linux tooling | — Pending |
-| Single-user / personal use | Simplifies auth, storage, and deployment | — Pending |
+| Userbot instead of reply bot | Transparent UX in every DM, no forwarding step, user asked for this explicitly | ✓ Good |
+| Telethon over Pyrogram | Mature, widely used, good async support, good docs for event handlers | ✓ Good |
+| Switched from local faster-whisper to Groq whisper-large-v3-turbo | 956 MB VPS couldn't run local whisper in reasonable time (2 min for 1-sec clip). Groq: 1-3 sec on free tier. Audio leaves VPS (acceptable — session already on a single VPS, privacy model is "trust the operator"). | ✓ Good (v1.0) |
+| 6-key Groq rotation pool | Free-tier quota per key; rotating on 429 multiplies headroom ~6x without payment | ✓ Good (v1.0) |
+| Transcript posted as reply in same chat | Matches user's stated preference | ✓ Good |
+| Scope limited to DMs and voice notes only for v1 | Keeps first milestone tight and shippable | ✓ Good |
+| Deploy as systemd service on Oracle VPS | Auto-restart, survives reboot, standard Linux tooling | ✓ Good |
+| Single-user / personal use | Simplifies auth, storage, and deployment | ✓ Good |
+| Use Llama 3.3 70B on Groq for v1.1 digest filtering | Same key pool, free tier supports 1M tokens/day per key; 30-min batching keeps cost near-zero | — Pending |
+| SQLite for v1.1 digest state (user prefs, dedupe cache) | No external DB needed, fits on the VPS, backup with session file | — Pending |
 
 ## Evolution
 

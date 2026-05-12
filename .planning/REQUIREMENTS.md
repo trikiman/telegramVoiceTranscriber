@@ -6,6 +6,20 @@
 
 ---
 
+## v1.1 Requirements
+
+### Channel Digest (DIG)
+
+- [ ] **DIG-01**: User can run `/digest setup` in Saved Messages and configure tracked channels, interest preferences, score threshold, delivery chat, and frequency through an interactive prompt flow
+- [ ] **DIG-02**: The bot records new messages from tracked channels into an in-memory buffer as they arrive, without invoking any LLM at ingest time
+- [ ] **DIG-03**: On a configurable schedule (default every 30 minutes), the bot batches buffered posts into a single Groq LLM call that returns per-post scores and one-line summaries
+- [ ] **DIG-04**: Only posts scoring at or above the user's threshold are included in the digest; the rest are dropped silently
+- [ ] **DIG-05**: Digest messages are grouped by channel and include a direct link to each original post
+- [ ] **DIG-06**: Empty digests (batch contained no posts above threshold) are skipped entirely — no message is sent
+- [ ] **DIG-07**: Commands `/digest pause`, `/digest resume`, `/digest now`, `/digest channels`, `/digest prefs`, `/digest stats`, `/digest unsub @channel` work as documented and take effect without a service restart
+- [ ] **DIG-08**: Preferences, tracked-channel list, and a short-lived dedupe cache persist across restarts in SQLite at `/var/lib/tg-voice-transcriber/digest.db` with `tgbot:tgbot 0600` permissions
+- [ ] **DIG-09**: First subscription to a channel does not back-fill historical posts — only posts arriving after subscription are scored
+
 ## v1.0 Requirements
 
 ### Authentication & Session (AUTH)
@@ -157,8 +171,17 @@ Each REQ-ID maps to exactly one phase.
 | DEP-08 | 5 | Hardening (privacy-safe logs implemented here; DEP verifies on VPS) |
 | DEP-09 | 5 | Hardening (hashed chat/sender IDs implemented here) |
 | DEP-10 | 6 | VPS Deployment |
+| DIG-01 | 7 | Channel Digest (v1.1) |
+| DIG-02 | 7 | Channel Digest (v1.1) |
+| DIG-03 | 7 | Channel Digest (v1.1) |
+| DIG-04 | 7 | Channel Digest (v1.1) |
+| DIG-05 | 7 | Channel Digest (v1.1) |
+| DIG-06 | 7 | Channel Digest (v1.1) |
+| DIG-07 | 7 | Channel Digest (v1.1) |
+| DIG-08 | 7 | Channel Digest (v1.1) |
+| DIG-09 | 7 | Channel Digest (v1.1) |
 
-**Coverage:** 37/37 requirements mapped across 6 phases.
+**Coverage:** 46/46 requirements mapped across 7 phases.
 
 ---
 *Requirements for milestone v1.0 — Telegram Voice Transcriber*
