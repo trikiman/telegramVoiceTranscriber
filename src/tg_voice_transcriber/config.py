@@ -19,8 +19,11 @@ class Config(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_file=".env",
+        env_file_encoding="utf-8",
         env_prefix="TG_VOICE_",
         extra="ignore",
+        # In production, secrets come from systemd EnvironmentFile (real env vars).
+        # .env is a dev-only convenience. Don't fail if it's missing or unreadable.
     )
 
     # Telegram API credentials (from https://my.telegram.org)

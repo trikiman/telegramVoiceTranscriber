@@ -2,6 +2,9 @@
 Description=Telegram voice-note transcriber (personal userbot)
 After=network-online.target
 Wants=network-online.target
+# Rate-limit restarts to prevent ban-triggering loops on persistent failures
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -11,11 +14,9 @@ WorkingDirectory=/opt/tg-voice-transcriber
 EnvironmentFile=/etc/tg-voice-transcriber/env
 ExecStart=/opt/tg-voice-transcriber/.venv/bin/python -m tg_voice_transcriber
 
-# Restart policy: restart on failure, but rate-limit to prevent ban-triggering loops
+# Restart policy: restart on failure (works with StartLimit* in [Unit] above)
 Restart=on-failure
 RestartSec=5s
-StartLimitIntervalSec=300
-StartLimitBurst=5
 
 # Hardening
 NoNewPrivileges=yes
