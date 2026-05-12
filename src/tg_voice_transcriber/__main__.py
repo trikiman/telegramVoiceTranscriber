@@ -71,7 +71,7 @@ async def main() -> None:
         sys.exit(EX_CONFIG)
 
     # Set up queue, reply service, worker
-    queue: asyncio.Queue[Job] = create_queue(maxsize=10)
+    queue: asyncio.Queue[Job] = create_queue(maxsize=cfg.queue_maxsize)
     reply_service = ReplyService(userbot.client)
     worker = Worker(
         queue=queue,
@@ -88,15 +88,46 @@ async def main() -> None:
     worker.start()
 
     identity = await userbot.who_am_i()
-    log.info("ready", connected_as=f"@{identity}", queue_maxsize=10)
+    log.info("ready", connected_as=f"@{identity}", queue_maxsize=cfg.queue_maxsize)
 
-    # Idle until disconnected
+    # Set up graceful shutdown on SIGTERM (systemd sends this on stop/restart)
+    shutdown_event = asyncio.Event()
+
+    def _signal_handler() -> None:
+        log.info("signal_received", signal="SIGTERM")
+        shutdown_event.set()
+
+    import signal
+    import sys as _sys
+
+    if _sys.platform != "win32":
+        loop = asyncio.get_running_loop()
+        loop.add_signal_handler(signal.SIGTERM, _signal_handler)
+        loop.add_signal_handler(signal.SIGINT, _signal_handler)
+
+    # Idle until disconnected or shutdown signal
     try:
-        await userbot.client.run_until_disconnected()
+        disconnect_task = asyncio.create_task(
+            userbot.client.run_until_disconnected(), name="telegram-idle"
+        )
+        shutdown_task = asyncio.create_task(shutdown_event.wait(), name="shutdown-wait")
+
+        done, pending = await asyncio.wait(
+            [disconnect_task, shutdown_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+
+        if shutdown_event.is_set():
+            log.info("shutting_down", reason="signal")
+        else:
+            log.info("shutting_down", reason="disconnected")
+
     except (KeyboardInterrupt, asyncio.CancelledError):
         log.info("shutting_down", reason="interrupted")
     finally:
-        await worker.stop(grace_period_s=10.0)
+        await worker.stop(grace_period_s=cfg.grace_period_s)
         transcriber.shutdown()
         await userbot.stop()
 

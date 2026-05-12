@@ -39,8 +39,15 @@ class Config(BaseSettings):
     min_voice_duration_s: float = 1.0  # Skip voice notes shorter than this (whisper hallucinates)
     max_voice_duration_s: float = 600.0  # 10 minutes — reject longer (CPU hog)
 
-    # Logging level (DEBUG / INFO / WARNING / ERROR)
+    # Queue settings
+    queue_maxsize: int = 10  # Bounded queue — excess jobs are dropped
+
+    # Worker settings
+    grace_period_s: float = 10.0  # Seconds to wait for in-flight job on shutdown
+
+    # Privacy / logging
     log_level: str = "INFO"
+    log_transcripts: bool = False  # If True, transcript text is logged at DEBUG level
 
 
 @lru_cache(maxsize=1)
