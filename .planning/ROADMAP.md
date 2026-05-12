@@ -1,0 +1,131 @@
+# Roadmap: Telegram Voice Transcriber
+
+## Overview
+
+From an empty repo to a hardened systemd-managed userbot on the Oracle VPS that auto-transcribes Russian and English voice notes in DMs. Six phases: we bootstrap the Telethon client and session, build the audio pipeline and the faster-whisper engine in parallel, wire them together with the event handler and reply UX, harden the loop (queue, retries, privacy logs, graceful shutdown), and ship it onto the VPS as a systemd unit.
+
+## Phases
+
+**Phase Numbering:**
+- Integer phases (1, 2, 3): Planned milestone work
+- Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
+
+Decimal phases appear between their surrounding integers in numeric order.
+
+- [ ] **Phase 1: Bootstrap & Session** — Repo scaffold, typed config, Telethon client wrapper, interactive one-time login
+- [ ] **Phase 2: Audio Pipeline** — FFmpeg-based OGG/Opus → 16 kHz mono PCM converter with duration guards
+- [ ] **Phase 3: Transcription Engine** — Warm-loaded faster-whisper small int8 CPU with RU/EN auto-detect and VAD, run off-loop in a single-thread executor
+- [ ] **Phase 4: Event Wiring & Reply UX** — Listener + filter + queue + worker + placeholder/edit reply flow end to end
+- [ ] **Phase 5: Hardening** — Bounded queue drop policy, FloodWait + retry, graceful shutdown, structured privacy-safe logging, long-transcript splitting
+- [ ] **Phase 6: VPS Deployment** — Service user, filesystem layout, hardened systemd unit, model pre-download, journald verified, reboot survival
+
+## Phase Details
+
+### Phase 1: Bootstrap & Session
+**Goal**: The project scaffold exists, dependencies install cleanly, typed configuration loads from env, and the user can perform a one-time interactive Telegram login that produces a reusable session file.
+**Depends on**: Nothing (first phase)
+**Requirements**: AUTH-01, AUTH-02, AUTH-03, AUTH-04
+**Success Criteria** (what must be TRUE):
+  1. `pip install -e .` succeeds in a clean Python 3.11 venv on both dev machine and Oracle VPS
+  2. Running `python scripts/login.py` once from the user's local machine prompts for the SMS code (and 2FA password if set), then creates a `.session` file
+  3. With the session file in place, the client connects without any interactive prompt and logs "connected as @me" with the user's account
+  4. An invalid or expired session causes the client to exit with a non-zero status and a clear `AUTH_REQUIRED` log line instead of looping
+  5. No secrets (API_ID, API_HASH, phone, session) exist in the repo; all come from `.env` or systemd `EnvironmentFile`
+**Plans**: TBD
+
+Plans:
+- [ ] 01-01: Project scaffold, pyproject, typed Config, Telethon client wrapper, login script
+
+### Phase 2: Audio Pipeline
+**Goal**: Given raw Telegram voice-note bytes, produce 16 kHz mono signed-16-bit PCM suitable for faster-whisper, with duration guards and clean resource handling. No Telegram dependency — pure byte-in / byte-out.
+**Depends on**: Phase 1 (for project scaffold and config)
+**Requirements**: AUD-01, AUD-02, AUD-03, AUD-04, AUD-05
+**Success Criteria** (what must be TRUE):
+  1. `scripts/smoke.py fixture.ogg` prints the PCM byte count and the first few sample values for a known-good fixture
+  2. Empty and near-silent fixtures (<1 second duration) are rejected without invoking FFmpeg-heavy conversion
+  3. Oversized fixtures (>10 minutes) are rejected with a clear signal for the caller to post a "too long" reply
+  4. All temporary audio data is released after conversion (no /tmp growth on repeat runs)
+  5. Missing FFmpeg is detected at startup and fails fast with a readable error, not mid-voice-note
+**Plans**: TBD
+
+Plans:
+- [ ] 02-01: FFmpeg subprocess wrapper with duration guards and fail-fast startup check
+
+### Phase 3: Transcription Engine
+**Goal**: A warm-loaded faster-whisper `small` multilingual model running on CPU with `int8` compute type, invoked off the event loop via a single-thread executor, auto-detecting Russian or English and suppressing whisper's known silence-hallucinations.
+**Depends on**: Phase 1 (config and scaffold)
+**Requirements**: TRN-01, TRN-02, TRN-03, TRN-04, TRN-05, TRN-06
+**Success Criteria** (what must be TRUE):
+  1. The model loads once at startup and does not reload between transcriptions
+  2. `scripts/smoke.py ru-fixture.ogg` produces a Russian transcript and `scripts/smoke.py en-fixture.ogg` produces an English transcript, each tagged with the detected language
+  3. Transcription calls are executed in the whisper-dedicated thread pool; running one does not block a concurrent `asyncio.sleep(0.1)` on the main loop
+  4. A silent or sub-one-second fixture returns an empty or "(silence)" transcript rather than a hallucinated string
+  5. Startup fails fast and loudly if the model cannot be loaded (missing cache, corrupted download, unsupported compute_type)
+**Plans**: TBD
+
+Plans:
+- [ ] 03-01: WhisperModel warm-load, executor wrapper, VAD + language clamp, hallucination filter
+
+### Phase 4: Event Wiring & Reply UX
+**Goal**: End-to-end: a real voice note received (or sent) in a one-on-one Telegram chat triggers a `⏳ Transcribing…` placeholder reply, followed by an in-place edit with the final transcript. Filtering correctly ignores groups, channels, non-voice media, and messages older than the configured freshness window.
+**Depends on**: Phases 1, 2, and 3
+**Requirements**: LIST-01, LIST-02, LIST-03, LIST-04, LIST-05, LIST-06, RPL-01, RPL-02, RPL-03
+**Success Criteria** (what must be TRUE):
+  1. Sending a voice note to the userbot's own account (Saved Messages or a test DM) results in `⏳ Transcribing…` within two seconds, then an edit with the transcript when whisper finishes
+  2. A voice note in a test group chat is ignored (no placeholder, no reply)
+  3. A plain audio file sent in a one-on-one chat is ignored
+  4. An outgoing voice note (sent by the user themselves in a DM) is transcribed the same way as incoming ones
+  5. Voice notes whose `message.date` is older than 10 minutes are silently skipped
+  6. Replies are threaded via `reply_to` to the original voice message and sent as plain text (no parse_mode)
+**Plans**: TBD
+
+Plans:
+- [ ] 04-01: Event handler + filters + Job queue + worker loop + formatter + reply service (placeholder/edit flow)
+
+### Phase 5: Hardening
+**Goal**: The bot survives real-world conditions — bursts of voice notes, FloodWait responses, transient RPC errors, deleted-before-reply messages, oversized transcripts, and SIGTERM during in-flight transcription — while logging privacy-safely.
+**Depends on**: Phase 4
+**Requirements**: AUD-04, RPL-04, RPL-05, RPL-06, REL-01, REL-02, REL-03, REL-04, REL-05, REL-06, DEP-08, DEP-09
+**Success Criteria** (what must be TRUE):
+  1. A burst of 10 voice notes in one chat is processed in FIFO order with no OOM, no dropped replies, and no duplicate transcripts
+  2. When the queue is full (simulated with a low `maxsize`), excess jobs are dropped with a WARNING log entry and no reply is posted for dropped jobs
+  3. A simulated `FloodWaitError` of 5 seconds causes the worker to sleep and then complete; no aggressive retry loop occurs
+  4. A simulated deleted-message scenario during placeholder editing does not crash the worker (swallowed `MessageIdInvalidError`)
+  5. A transcript exceeding 4096 characters is split into multiple reply messages, each threaded to the voice note
+  6. `systemctl stop` (or equivalent SIGTERM) waits for in-flight transcription to finish up to a grace period, then disconnects cleanly; no "⏳ Transcribing…" placeholder is left orphaned
+  7. `journalctl -u tg-voice-transcriber` at default INFO level contains NO raw transcript text and NO raw chat_id/sender_id values; only hashed IDs and metadata appear
+**Plans**: TBD
+
+Plans:
+- [ ] 05-01: Bounded queue + drop policy + FloodWait + retries + long-transcript split + deleted-msg swallow
+- [ ] 05-02: Graceful shutdown + structured privacy-safe logging + correlation IDs
+
+### Phase 6: VPS Deployment
+**Goal**: The userbot runs on the Oracle Ubuntu VPS as a hardened systemd service under a dedicated unprivileged user, survives a host reboot, and has documented session/secret backup and re-auth procedures.
+**Depends on**: Phase 5
+**Requirements**: DEP-01, DEP-02, DEP-03, DEP-04, DEP-05, DEP-06, DEP-07, DEP-10
+**Success Criteria** (what must be TRUE):
+  1. A dedicated `tgbot` system user exists with home at `/var/lib/tg-voice-transcriber`, no shell, no login
+  2. Code, env file, and session file live at their canonical paths with the documented permissions (`/opt/...`, `/etc/.../env` `0640 root:tgbot`, session `0600 tgbot:tgbot`)
+  3. The faster-whisper model is pre-downloaded during deployment so `systemctl start` returns within a few seconds on first boot
+  4. The systemd unit applies hardening directives (`NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`, `PrivateTmp`, `ReadWritePaths=/var/lib/tg-voice-transcriber`) and rate-limited restarts (`StartLimitBurst=5`)
+  5. `systemctl status tg-voice-transcriber` reports `active (running)` after a manual VPS reboot, within 60 seconds of boot
+  6. A written procedure in the README explains how to back up the session file + env file together, and how to re-authenticate if the session is invalidated
+**Plans**: TBD
+
+Plans:
+- [ ] 06-01: Service user + filesystem layout + hardened systemd unit + model pre-download + journald verification + backup/re-auth docs
+
+## Progress
+
+**Execution Order:**
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 1. Bootstrap & Session | 0/1 | Not started | - |
+| 2. Audio Pipeline | 0/1 | Not started | - |
+| 3. Transcription Engine | 0/1 | Not started | - |
+| 4. Event Wiring & Reply UX | 0/1 | Not started | - |
+| 5. Hardening | 0/2 | Not started | - |
+| 6. VPS Deployment | 0/1 | Not started | - |

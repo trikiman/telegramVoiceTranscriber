@@ -110,17 +110,55 @@ Deferred from v1 by explicit scoping. Carry these forward as candidates for the 
 
 ## Traceability
 
-(Filled in by the roadmapper — each REQ-ID maps to exactly one phase.)
+Each REQ-ID maps to exactly one phase.
 
-| REQ-ID | Phase |
-|---|---|
-| AUTH-01 … AUTH-04 | — |
-| LIST-01 … LIST-06 | — |
-| AUD-01 … AUD-05 | — |
-| TRN-01 … TRN-06 | — |
-| RPL-01 … RPL-06 | — |
-| REL-01 … REL-06 | — |
-| DEP-01 … DEP-10 | — |
+| REQ-ID | Phase | Phase name |
+|---|---|---|
+| AUTH-01 | 1 | Bootstrap & Session |
+| AUTH-02 | 1 | Bootstrap & Session |
+| AUTH-03 | 1 | Bootstrap & Session |
+| AUTH-04 | 1 | Bootstrap & Session |
+| LIST-01 | 4 | Event Wiring & Reply UX |
+| LIST-02 | 4 | Event Wiring & Reply UX |
+| LIST-03 | 4 | Event Wiring & Reply UX |
+| LIST-04 | 4 | Event Wiring & Reply UX |
+| LIST-05 | 4 | Event Wiring & Reply UX |
+| LIST-06 | 4 | Event Wiring & Reply UX |
+| AUD-01 | 2 | Audio Pipeline |
+| AUD-02 | 2 | Audio Pipeline |
+| AUD-03 | 2 | Audio Pipeline |
+| AUD-04 | 2 | Audio Pipeline |
+| AUD-05 | 2 | Audio Pipeline |
+| TRN-01 | 3 | Transcription Engine |
+| TRN-02 | 3 | Transcription Engine |
+| TRN-03 | 3 | Transcription Engine |
+| TRN-04 | 3 | Transcription Engine |
+| TRN-05 | 3 | Transcription Engine |
+| TRN-06 | 3 | Transcription Engine |
+| RPL-01 | 4 | Event Wiring & Reply UX |
+| RPL-02 | 4 | Event Wiring & Reply UX |
+| RPL-03 | 4 | Event Wiring & Reply UX |
+| RPL-04 | 5 | Hardening |
+| RPL-05 | 5 | Hardening |
+| RPL-06 | 5 | Hardening |
+| REL-01 | 5 | Hardening |
+| REL-02 | 5 | Hardening |
+| REL-03 | 5 | Hardening |
+| REL-04 | 5 | Hardening |
+| REL-05 | 5 | Hardening |
+| REL-06 | 5 | Hardening |
+| DEP-01 | 6 | VPS Deployment |
+| DEP-02 | 6 | VPS Deployment |
+| DEP-03 | 6 | VPS Deployment |
+| DEP-04 | 6 | VPS Deployment |
+| DEP-05 | 6 | VPS Deployment |
+| DEP-06 | 6 | VPS Deployment |
+| DEP-07 | 6 | VPS Deployment |
+| DEP-08 | 5 | Hardening (privacy-safe logs implemented here; DEP verifies on VPS) |
+| DEP-09 | 5 | Hardening (hashed chat/sender IDs implemented here) |
+| DEP-10 | 6 | VPS Deployment |
+
+**Coverage:** 37/37 requirements mapped across 6 phases.
 
 ---
 *Requirements for milestone v1.0 — Telegram Voice Transcriber*
