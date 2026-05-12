@@ -30,6 +30,10 @@ class ScoredPost:
     score: int  # 1-10
     summary: str
     original_text: str
+    # Optional deal detection (v1.1)
+    is_deal: bool = False  # LLM detected a free/discounted item
+    deal_value_usd: int | None = None  # estimated value if it's a deal
+    scam_suspected: bool = False  # LLM flagged suspicious patterns
 
 
 def _build_system_prompt(user_prefs: str) -> str:
@@ -39,6 +43,14 @@ def _build_system_prompt(user_prefs: str) -> str:
         "You are a relevance filter for a personal Telegram digest. "
         "Score each post 1-10 where 10 = must-read, 7+ = relevant, 5-6 = borderline, 1-4 = skip. "
         "Return ONE-line summaries in the user's preferred language (Russian or English, match the post language). "
+        "\n\n"
+        "ALSO detect free deals, giveaways, and promos. If a post offers something FREE or heavily discounted "
+        "(software, games, courses, ebooks, subscriptions, etc.), set `is_deal=true` and estimate its normal value in USD "
+        "in `deal_value_usd` (integer). If the post has scam patterns (requires payment to 'claim', asks for card details, "
+        "promises unrealistic rewards, shady links, or is clearly a lead-magnet disguised as 'free'), set `scam_suspected=true`. "
+        "Boost the score to 8-10 for LEGITIMATE free deals worth $20+ that the user would plausibly want, "
+        "regardless of other interests. DO NOT boost scams — score those 1-3 even if they claim high value. "
+        "\n\n"
         "Output MUST be valid JSON only, no prose.\n\n"
         f"User's interests: {prefs}"
     )
@@ -55,7 +67,8 @@ def _build_user_prompt(posts: list[dict[str, Any]]) -> str:
         })
     return (
         "Score these posts. Return JSON with this exact shape:\n"
-        '{"results": [{"id": <int>, "score": <1-10>, "summary": "<one line>"}, ...]}\n\n'
+        '{"results": [{"id": <int>, "score": <1-10>, "summary": "<one line>", '
+        '"is_deal": <bool>, "deal_value_usd": <int or null>, "scam_suspected": <bool>}, ...]}\n\n'
         "Posts:\n" + json.dumps(items, ensure_ascii=False, indent=2)
     )
 
@@ -203,6 +216,9 @@ class DigestScorer:
                 score=score,
                 summary=summary,
                 original_text=p.get("text") or "",
+                is_deal=bool(r.get("is_deal", False)) if r else False,
+                deal_value_usd=_parse_int_or_none(r.get("deal_value_usd")) if r else None,
+                scam_suspected=bool(r.get("scam_suspected", False)) if r else False,
             ))
         return scored
 
@@ -218,3 +234,13 @@ class DigestScorer:
             summary="",
             original_text=post.get("text") or "",
         )
+
+
+def _parse_int_or_none(value: Any) -> int | None:
+    """Parse an int, returning None for null/invalid inputs."""
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None

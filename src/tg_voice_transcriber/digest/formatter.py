@@ -70,10 +70,30 @@ def _format_channel_block(
     for p in sorted_posts:
         link = _build_post_link(p)
         summary = p.summary or _fallback_summary(p.original_text)
-        lines.append(f"▸ {summary}")
+
+        # Build an optional deal badge
+        badge = _format_deal_badge(p)
+        if badge:
+            lines.append(f"▸ {badge} {summary}")
+        else:
+            lines.append(f"▸ {summary}")
+
         if link:
             lines.append(f"  {link}")
     return "\n".join(lines)
+
+
+def _format_deal_badge(post: ScoredPost) -> str:
+    """Build a deal/scam prefix badge if the post is flagged."""
+    if post.scam_suspected:
+        return "⚠️ suspected scam —"
+    if post.is_deal:
+        if post.deal_value_usd and post.deal_value_usd >= 20:
+            return f"💰 ~${post.deal_value_usd} free —"
+        if post.deal_value_usd:
+            return f"🎁 ~${post.deal_value_usd} deal —"
+        return "🎁 free —"
+    return ""
 
 
 def _build_post_link(post: ScoredPost) -> str:
