@@ -21,7 +21,7 @@ echo
 # 1. System packages
 echo "[1/8] Installing system packages..."
 apt-get update -qq
-apt-get install -y -qq python3.11 python3.11-venv python3-pip ffmpeg git
+apt-get install -y -qq python3 python3-venv python3-pip ffmpeg git
 
 # 2. Create service user
 echo "[2/8] Creating service user 'tgbot'..."
@@ -50,7 +50,7 @@ fi
 # 5. Create venv and install
 echo "[5/8] Creating venv and installing dependencies..."
 cd /opt/tg-voice-transcriber
-python3.11 -m venv .venv
+python3 -m venv .venv
 .venv/bin/pip install --upgrade pip wheel -q
 .venv/bin/pip install -e . -q
 # Install faster-whisper (Phase 3 dependency)

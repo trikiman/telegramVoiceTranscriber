@@ -7,7 +7,7 @@ name = "telegram-voice-transcriber"
 version = "0.1.0"
 description = "Personal Telegram userbot that auto-transcribes voice notes in 1-on-1 chats using faster-whisper locally."
 readme = "README.md"
-requires-python = ">=3.11,<3.13"
+requires-python = ">=3.10,<3.13"
 license = { text = "MIT" }
 authors = [{ name = "rust" }]
 keywords = ["telegram", "userbot", "whisper", "transcription", "telethon"]
@@ -16,6 +16,7 @@ classifiers = [
     "Intended Audience :: End Users/Desktop",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Communications :: Chat",
@@ -49,7 +50,7 @@ packages = ["src/tg_voice_transcriber"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py310"
 src = ["src", "scripts", "tests"]
 
 [tool.ruff.lint]
