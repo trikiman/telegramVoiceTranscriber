@@ -123,9 +123,9 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Bootstrap & Session | 0/1 | Not started | - |
-| 2. Audio Pipeline | 0/1 | Not started | - |
-| 3. Transcription Engine | 0/1 | Not started | - |
-| 4. Event Wiring & Reply UX | 0/1 | Not started | - |
-| 5. Hardening | 0/2 | Not started | - |
-| 6. VPS Deployment | 0/1 | Not started | - |
+| 1. Bootstrap & Session | 1/1 | Complete | 2026-05-12 |
+| 2. Audio Pipeline | 1/1 | Complete | 2026-05-12 |
+| 3. Transcription Engine | 1/1 | Complete | 2026-05-12 |
+| 4. Event Wiring & Reply UX | 1/1 | Complete | 2026-05-12 |
+| 5. Hardening | 1/1 | Complete | 2026-05-12 |
+| 6. VPS Deployment | 1/1 | Complete | 2026-05-12 |

@@ -9,10 +9,10 @@ See: `.planning/PROJECT.md` (updated 2026-05-12)
 
 ## Current Position
 
-Phase: 1 — Bootstrap & Session
+Phase: 6 — VPS Deployment (all phases complete)
 Plan: —
-Status: Not started (roadmap approved, ready to plan Phase 1)
-Last activity: 2026-05-12 — Milestone v1.0 initialized, research + requirements + roadmap complete
+Status: All phases implemented, ready for deployment
+Last activity: 2026-05-12 — All 6 phases executed autonomously
 
 ## Milestone
 
@@ -23,12 +23,12 @@ Last activity: 2026-05-12 — Milestone v1.0 initialized, research + requirement
 
 | # | Phase | Status |
 |---|-------|--------|
-| 1 | Bootstrap & Session | Not started |
-| 2 | Audio Pipeline | Not started |
-| 3 | Transcription Engine | Not started |
-| 4 | Event Wiring & Reply UX | Not started |
-| 5 | Hardening | Not started |
-| 6 | VPS Deployment | Not started |
+| 1 | Bootstrap & Session | Complete |
+| 2 | Audio Pipeline | Complete |
+| 3 | Transcription Engine | Complete |
+| 4 | Event Wiring & Reply UX | Complete |
+| 5 | Hardening | Complete |
+| 6 | VPS Deployment | Complete |
 
 ## Accumulated Context
 
@@ -41,4 +41,9 @@ Last activity: 2026-05-12 — Milestone v1.0 initialized, research + requirement
 
 ## Next Step
 
-`/gsd-plan-phase 1` — research + plan Phase 1 (Bootstrap & Session).
+Deploy to VPS:
+1. `python scripts/login.py` (local machine — create session)
+2. SSH into VPS, run `deploy/setup-vps.sh`
+3. Copy session file, fill env, start service
+
+Then: `/gsd-complete-milestone` to archive.
