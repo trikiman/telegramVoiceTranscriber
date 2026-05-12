@@ -14,6 +14,11 @@ import structlog
 from tg_voice_transcriber.audio import FFmpegNotFoundError, check_ffmpeg
 from tg_voice_transcriber.client import SessionInvalidError, TelegramUserbot
 from tg_voice_transcriber.config import get_config
+from tg_voice_transcriber.digest import db as digest_db
+from tg_voice_transcriber.digest.commands import register_command_handlers
+from tg_voice_transcriber.digest.ingest import register_digest_handler
+from tg_voice_transcriber.digest.scheduler import DigestScheduler
+from tg_voice_transcriber.digest.scorer import DigestScorer
 from tg_voice_transcriber.formatter import format_placeholder
 from tg_voice_transcriber.groq_client import GroqClient
 from tg_voice_transcriber.groq_transcriber import GroqTranscriber
@@ -132,6 +137,50 @@ async def main() -> None:
         language=cfg.default_language or "auto",
     )
 
+    # Set up channel digest (v1.1) — only if Groq is available for the LLM calls
+    digest_scheduler: DigestScheduler | None = None
+    if cfg.digest_enabled and cfg.use_groq and groq_client is not None:
+        try:
+            await digest_db.init_db(cfg.digest_db_path)
+            digest_cfg = await digest_db.load_config(cfg.digest_db_path)
+
+            scorer = DigestScorer(groq_client, model=cfg.digest_llm_model)
+            digest_scheduler = DigestScheduler(
+                client=userbot.client,
+                db_path=cfg.digest_db_path,
+                scorer=scorer,
+            )
+
+            register_digest_handler(
+                userbot.client,
+                cfg.digest_db_path,
+                default_track_all=cfg.digest_default_track_all,
+            )
+            register_command_handlers(
+                userbot.client,
+                cfg.digest_db_path,
+                digest_scheduler,
+            )
+            digest_scheduler.start()
+
+            log.info(
+                "digest_ready",
+                db_path=str(cfg.digest_db_path),
+                configured=digest_cfg.ready,
+                paused=digest_cfg.paused,
+                frequency_s=digest_cfg.frequency_s,
+                threshold=digest_cfg.threshold,
+            )
+        except Exception:
+            log.error("digest_init_failed", exc_info=True)
+            digest_scheduler = None
+    else:
+        log.info(
+            "digest_disabled",
+            digest_enabled=cfg.digest_enabled,
+            use_groq=cfg.use_groq,
+        )
+
     # Set up graceful shutdown on SIGTERM (systemd sends this on stop/restart)
     shutdown_event = asyncio.Event()
 
@@ -170,6 +219,8 @@ async def main() -> None:
         log.info("shutting_down", reason="interrupted")
     finally:
         await worker.stop(grace_period_s=cfg.grace_period_s)
+        if digest_scheduler is not None:
+            await digest_scheduler.stop(grace_period_s=cfg.grace_period_s)
         if isinstance(transcriber, GroqTranscriber):
             await transcriber.close()
         else:
