@@ -1,0 +1,35 @@
+[Unit]
+Description=Telegram voice-note transcriber (personal userbot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tgbot
+Group=tgbot
+WorkingDirectory=/opt/tg-voice-transcriber
+EnvironmentFile=/etc/tg-voice-transcriber/env
+ExecStart=/opt/tg-voice-transcriber/.venv/bin/python -m tg_voice_transcriber
+
+# Restart policy: restart on failure, but rate-limit to prevent ban-triggering loops
+Restart=on-failure
+RestartSec=5s
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/tg-voice-transcriber
+
+# Resource limits (tune to VPS — Ampere A1 4 OCPU / 24 GB)
+MemoryMax=2G
+CPUQuota=200%
+
+# Generous startup timeout for first model load (if not pre-downloaded)
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
