@@ -15,6 +15,8 @@ from tg_voice_transcriber.audio import FFmpegNotFoundError, check_ffmpeg
 from tg_voice_transcriber.client import SessionInvalidError, TelegramUserbot
 from tg_voice_transcriber.config import get_config
 from tg_voice_transcriber.formatter import format_placeholder
+from tg_voice_transcriber.groq_client import GroqClient
+from tg_voice_transcriber.groq_transcriber import GroqTranscriber
 from tg_voice_transcriber.handlers import register_handlers
 from tg_voice_transcriber.logging import configure_logging
 from tg_voice_transcriber.queue import Job, create_queue
@@ -33,12 +35,19 @@ async def main() -> None:
     cfg = get_config()
     configure_logging(cfg.log_level)
 
-    # Fail-fast: check FFmpeg is available
-    try:
-        check_ffmpeg()
-    except FFmpegNotFoundError as exc:
-        log.error("startup_failed", reason=str(exc))
-        sys.exit(EX_CONFIG)
+    # Fail-fast: check FFmpeg is available (only needed for local whisper path)
+    if not cfg.use_groq:
+        try:
+            check_ffmpeg()
+        except FFmpegNotFoundError as exc:
+            log.error("startup_failed", reason=str(exc))
+            sys.exit(EX_CONFIG)
+
+    # Validate Groq config if using it
+    if cfg.use_groq:
+        if cfg.groq_api_key is None or not cfg.groq_api_key.get_secret_value():
+            log.error("startup_failed", reason="TG_VOICE_USE_GROQ=true but TG_VOICE_GROQ_API_KEY is not set")
+            sys.exit(EX_CONFIG)
 
     # Connect to Telegram
     userbot = TelegramUserbot(cfg)
@@ -52,23 +61,49 @@ async def main() -> None:
         )
         sys.exit(EX_CONFIG)
 
-    # Load whisper model (blocking, ~2-4s)
-    transcriber = Transcriber(
-        model_size="small",
-        compute_type="int8",
-        device="cpu",
-        cpu_threads=4,
-    )
-    try:
-        transcriber.load()
-    except ImportError as exc:
-        log.error("startup_failed", reason=str(exc))
-        await userbot.stop()
-        sys.exit(EX_CONFIG)
-    except Exception as exc:
-        log.error("model_load_failed", reason=str(exc), exc_info=True)
-        await userbot.stop()
-        sys.exit(EX_CONFIG)
+    # Build shared Groq client if enabled (both transcription and future digest use it)
+    groq_client: GroqClient | None = None
+    if cfg.use_groq:
+        groq_client = GroqClient(api_keys=cfg.groq_api_key.get_secret_value())
+        try:
+            groq_client.load()
+        except ImportError as exc:
+            log.error("startup_failed", reason=str(exc))
+            await userbot.stop()
+            sys.exit(EX_CONFIG)
+
+    # Load transcriber (Groq = instant, local = blocking 2-4s)
+    transcriber: Transcriber | GroqTranscriber
+    if cfg.use_groq:
+        transcriber = GroqTranscriber(
+            groq=groq_client,
+            model=cfg.groq_model,
+            default_language=cfg.default_language or "ru",
+        )
+        try:
+            transcriber.load()
+        except ImportError as exc:
+            log.error("startup_failed", reason=str(exc))
+            await userbot.stop()
+            sys.exit(EX_CONFIG)
+    else:
+        transcriber = Transcriber(
+            model_size="small",
+            compute_type="int8",
+            device="cpu",
+            cpu_threads=2,  # 2-vCPU VPS
+            default_language=cfg.default_language or "ru",
+        )
+        try:
+            transcriber.load()
+        except ImportError as exc:
+            log.error("startup_failed", reason=str(exc))
+            await userbot.stop()
+            sys.exit(EX_CONFIG)
+        except Exception as exc:
+            log.error("model_load_failed", reason=str(exc), exc_info=True)
+            await userbot.stop()
+            sys.exit(EX_CONFIG)
 
     # Set up queue, reply service, worker
     queue: asyncio.Queue[Job] = create_queue(maxsize=cfg.queue_maxsize)
@@ -79,6 +114,7 @@ async def main() -> None:
         transcriber=transcriber,
         config=cfg,
         client=userbot.client,
+        use_groq=cfg.use_groq,
     )
 
     # Register event handlers
@@ -88,7 +124,13 @@ async def main() -> None:
     worker.start()
 
     identity = await userbot.who_am_i()
-    log.info("ready", connected_as=f"@{identity}", queue_maxsize=cfg.queue_maxsize)
+    log.info(
+        "ready",
+        connected_as=f"@{identity}",
+        queue_maxsize=cfg.queue_maxsize,
+        backend="groq" if cfg.use_groq else "local_whisper",
+        language=cfg.default_language or "auto",
+    )
 
     # Set up graceful shutdown on SIGTERM (systemd sends this on stop/restart)
     shutdown_event = asyncio.Event()
@@ -128,7 +170,12 @@ async def main() -> None:
         log.info("shutting_down", reason="interrupted")
     finally:
         await worker.stop(grace_period_s=cfg.grace_period_s)
-        transcriber.shutdown()
+        if isinstance(transcriber, GroqTranscriber):
+            await transcriber.close()
+        else:
+            transcriber.shutdown()
+        if groq_client is not None:
+            await groq_client.close()
         await userbot.stop()
 
 
