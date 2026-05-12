@@ -35,6 +35,10 @@ class Config(BaseSettings):
     # Production: /var/lib/tg-voice-transcriber/userbot.session (via systemd EnvironmentFile).
     session_path: Path = Path(".local/userbot.session")
 
+    # Audio pipeline settings
+    min_voice_duration_s: float = 1.0  # Skip voice notes shorter than this (whisper hallucinates)
+    max_voice_duration_s: float = 600.0  # 10 minutes — reject longer (CPU hog)
+
     # Logging level (DEBUG / INFO / WARNING / ERROR)
     log_level: str = "INFO"
 
