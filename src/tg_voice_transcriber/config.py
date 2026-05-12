@@ -38,6 +38,18 @@ class Config(BaseSettings):
     # Production: /var/lib/tg-voice-transcriber/userbot.session (via systemd EnvironmentFile).
     session_path: Path = Path(".local/userbot.session")
 
+    # Transcription backend
+    use_groq: bool = False  # If True, use Groq API; if False, use local faster-whisper
+    groq_api_key: SecretStr | None = None
+    groq_model: str = "whisper-large-v3-turbo"
+    default_language: str = "ru"  # ISO 639-1 — "ru" or "en" or "" for auto-detect
+
+    # Channel digest (v1.1)
+    digest_enabled: bool = True  # master switch — actual "ready" depends on DB config
+    digest_db_path: Path = Path(".local/digest.db")  # overridden by systemd env in prod
+    digest_llm_model: str = "llama-3.3-70b-versatile"
+    digest_default_track_all: bool = True  # auto-add unknown channels to tracked list
+
     # Audio pipeline settings
     min_voice_duration_s: float = 1.0  # Skip voice notes shorter than this (whisper hallucinates)
     max_voice_duration_s: float = 600.0  # 10 minutes — reject longer (CPU hog)
