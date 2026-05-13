@@ -220,6 +220,19 @@ class DigestScorer:
                 deal_value_usd=_parse_int_or_none(r.get("deal_value_usd")) if r else None,
                 scam_suspected=bool(r.get("scam_suspected", False)) if r else False,
             ))
+
+        # Log per-post scores for debugging
+        import structlog
+        slog = structlog.get_logger()
+        for sp in scored:
+            slog.info(
+                "digest_post_scored",
+                channel=sp.channel_username or sp.channel_title[:20],
+                score=sp.score,
+                summary=sp.summary[:80],
+                is_deal=sp.is_deal,
+            )
+
         return scored
 
     @staticmethod

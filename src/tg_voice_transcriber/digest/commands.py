@@ -57,6 +57,8 @@ def register_command_handlers(
         subcmd = parts[0].lower() if parts else ""
         rest = parts[1] if len(parts) > 1 else ""
 
+        log.info("digest_command_received", subcmd=subcmd)
+
         try:
             reply = await _dispatch(client, db_path, scheduler, subcmd, rest)
         except Exception as exc:

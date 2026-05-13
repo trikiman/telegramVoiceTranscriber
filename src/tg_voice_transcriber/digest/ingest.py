@@ -38,12 +38,25 @@ def register_digest_handler(
 
         message = event.message
         text = (message.message or "").strip()
+        channel_id = event.chat_id
+
+        # Log every channel post we see at DEBUG level for troubleshooting
+        log.debug(
+            "digest_channel_post_seen",
+            channel_id_hashed=_hashed(channel_id),
+            msg_id=message.id,
+            text_length=len(text),
+            has_media=message.media is not None,
+        )
 
         # Skip media-only or very short posts
         if len(text) < MIN_POST_LENGTH:
+            log.debug(
+                "digest_post_skipped_short",
+                channel_id_hashed=_hashed(channel_id),
+                text_length=len(text),
+            )
             return
-
-        channel_id = event.chat_id
 
         # Check if tracked
         is_tracked = await digest_db.is_channel_tracked(db_path, channel_id)
