@@ -42,7 +42,14 @@ def _build_system_prompt(user_prefs: str) -> str:
     return (
         "You are a relevance filter for a personal Telegram digest. "
         "Score each post 1-10 where 10 = must-read, 7+ = relevant, 5-6 = borderline, 1-4 = skip. "
-        "Return ONE-line summaries in the user's preferred language (Russian or English, match the post language). "
+        "Write summaries in the user's preferred language (Russian or English, match the post language). "
+        "\n\n"
+        "SUMMARY RULES — the summary must be SELF-CONTAINED. User should NOT need to click the link to understand "
+        "what to do. For each post include the essential info:\n"
+        "- WHAT it is (the offer/news/announcement)\n"
+        "- KEY DETAILS (price, value, deadline, platform)\n"
+        "- HOW TO ACT if action is needed (e.g. 'claim at store.epicgames.com' or 'use code FREE2026 in Steam')\n"
+        "Write 1-2 concise sentences, not one-liners. Do NOT say 'see post for details' — extract the details.\n"
         "\n\n"
         "ALSO detect free deals, giveaways, and promos. If a post offers something FREE or heavily discounted "
         "(software, games, courses, ebooks, subscriptions, etc.), set `is_deal=true` and estimate its normal value in USD "
@@ -205,7 +212,7 @@ class DigestScorer:
                     score = max(1, min(10, int(r.get("score", 0))))
                 except (TypeError, ValueError):
                     score = 0
-                summary = str(r.get("summary", "")).strip()[:280]
+                summary = str(r.get("summary", "")).strip()[:500]
 
             scored.append(ScoredPost(
                 post_id=p["id"],

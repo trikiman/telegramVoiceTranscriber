@@ -79,7 +79,9 @@ def _format_channel_block(
             lines.append(f"▸ {summary}")
 
         if link:
-            lines.append(f"  {link}")
+            # Prefix "↗ source" makes it visually a "verify/context" affordance,
+            # not the primary path to info (the summary already has everything).
+            lines.append(f"  ↗ source: {link}")
     return "\n".join(lines)
 
 
