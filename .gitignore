@@ -39,3 +39,8 @@ Thumbs.db
 
 # Project artifacts
 /tmp/
+
+
+# build artifacts
+tmp_build/
+*.tar.gz
