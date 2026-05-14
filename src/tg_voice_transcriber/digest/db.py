@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS config (
     threshold         INTEGER NOT NULL DEFAULT 7,
     frequency_s       INTEGER NOT NULL DEFAULT 1800,
     paused            INTEGER NOT NULL DEFAULT 0,
+    top_n             INTEGER NOT NULL DEFAULT 0,
     updated_at        REAL NOT NULL DEFAULT (strftime('%s','now'))
 );
 
@@ -88,6 +89,7 @@ class DigestConfig:
     threshold: int
     frequency_s: int
     paused: bool
+    top_n: int = 0  # 0 = threshold mode, >0 = always show top N regardless of threshold
 
     @property
     def ready(self) -> bool:
@@ -138,12 +140,13 @@ async def load_config(path: Path) -> DigestConfig:
 
     async with aiosqlite.connect(str(path)) as db:
         cur = await db.execute(
-            "SELECT delivery_chat_id, user_prefs_text, threshold, frequency_s, paused FROM config WHERE id = 1"
+            "SELECT delivery_chat_id, user_prefs_text, threshold, frequency_s, paused, "
+            "COALESCE((SELECT top_n FROM config WHERE id = 1), 0) "
+            "FROM config WHERE id = 1"
         )
         row = await cur.fetchone()
         if row is None:
-            # Should never happen — init_db ensures row exists
-            return DigestConfig(None, "", 7, 1800, False)
+            return DigestConfig(None, "", 7, 1800, False, 0)
 
         return DigestConfig(
             delivery_chat_id=row[0],
@@ -151,6 +154,7 @@ async def load_config(path: Path) -> DigestConfig:
             threshold=int(row[2]),
             frequency_s=int(row[3]),
             paused=bool(row[4]),
+            top_n=int(row[5] or 0),
         )
 
 
@@ -167,6 +171,7 @@ async def save_config(path: Path, cfg: DigestConfig) -> None:
                    threshold        = ?,
                    frequency_s      = ?,
                    paused           = ?,
+                   top_n            = ?,
                    updated_at       = strftime('%s','now')
              WHERE id = 1
             """,
@@ -176,6 +181,7 @@ async def save_config(path: Path, cfg: DigestConfig) -> None:
                 cfg.threshold,
                 cfg.frequency_s,
                 1 if cfg.paused else 0,
+                cfg.top_n,
             ),
         )
         await db.commit()

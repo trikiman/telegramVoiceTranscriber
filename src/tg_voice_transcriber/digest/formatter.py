@@ -17,20 +17,30 @@ def format_digest(
     threshold: int,
     window_start: float,
     window_end: float,
+    top_n: int | None = None,
 ) -> list[str]:
     """Format scored posts into one or more digest messages.
 
-    Returns an empty list if no posts are above threshold.
-    Posts are grouped by channel, ordered by channel title.
+    Two modes:
+    - Threshold mode (top_n=None): include posts with score >= threshold;
+      empty list if nothing qualifies.
+    - Top-N mode (top_n=5): always include the top N posts by score regardless
+      of threshold. Returns empty only if scored is empty.
     """
-    relevant = [p for p in scored if p.score >= threshold]
-    if not relevant:
+    if not scored:
         return []
 
-    total_scanned = len(scored)
-    total_delivered = len(relevant)
-
-    header = _format_header(window_start, window_end, total_delivered, total_scanned)
+    if top_n is not None and top_n > 0:
+        # Top-N mode: take highest-scoring posts (ties broken by original order)
+        relevant = sorted(scored, key=lambda p: -p.score)[:top_n]
+        if not relevant:
+            return []
+        header = _format_header(window_start, window_end, len(relevant), len(scored), top_n_mode=True)
+    else:
+        relevant = [p for p in scored if p.score >= threshold]
+        if not relevant:
+            return []
+        header = _format_header(window_start, window_end, len(relevant), len(scored), top_n_mode=False)
 
     # Group by channel
     by_channel: dict[tuple[str, str | None], list[ScoredPost]] = defaultdict(list)
@@ -51,9 +61,11 @@ def format_digest(
     return _split_message(full)
 
 
-def _format_header(start_ts: float, end_ts: float, delivered: int, scanned: int) -> str:
+def _format_header(start_ts: float, end_ts: float, delivered: int, scanned: int, *, top_n_mode: bool) -> str:
     start = datetime.fromtimestamp(start_ts, tz=timezone.utc).strftime("%H:%M")
     end = datetime.fromtimestamp(end_ts, tz=timezone.utc).strftime("%H:%M")
+    if top_n_mode:
+        return f"📋 Digest — {start} to {end} (top {delivered} of {scanned} scanned)"
     return f"📋 Digest — {start} to {end} ({delivered} of {scanned} relevant)"
 
 
@@ -73,10 +85,11 @@ def _format_channel_block(
 
         # Build an optional deal badge
         badge = _format_deal_badge(p)
+        score_label = f"[{p.score}/10]"
         if badge:
-            lines.append(f"▸ {badge} {summary}")
+            lines.append(f"▸ {score_label} {badge} {summary}")
         else:
-            lines.append(f"▸ {summary}")
+            lines.append(f"▸ {score_label} {summary}")
 
         if link:
             # Prefix "↗ source" makes it visually a "verify/context" affordance,

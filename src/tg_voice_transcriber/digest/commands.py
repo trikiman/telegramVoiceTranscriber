@@ -25,7 +25,8 @@ HELP_TEXT = """📋 Digest commands
 /digest channels         — list tracked channels
 /digest prefs            — show current preferences
 /digest prefs <text>     — update preferences
-/digest threshold <N>    — set relevance threshold (1-10)
+/digest threshold <N>    — set relevance threshold (1-10) [threshold mode]
+/digest top <N>          — always show top N posts per cycle [0=threshold mode]
 /digest frequency <min>  — set digest frequency in minutes (min 5)
 /digest stats            — show last-7-day stats
 /digest unsub @name      — stop tracking a channel
@@ -99,6 +100,9 @@ async def _dispatch(
 
     if subcmd == "threshold":
         return await _cmd_threshold(db_path, rest)
+
+    if subcmd == "top":
+        return await _cmd_top(db_path, rest)
 
     if subcmd == "frequency":
         return await _cmd_frequency(db_path, rest)
@@ -227,6 +231,22 @@ async def _cmd_threshold(db_path: Path, rest: str) -> str:
     cfg.threshold = value
     await digest_db.save_config(db_path, cfg)
     return f"✅ Threshold set to {value}/10."
+
+
+async def _cmd_top(db_path: Path, rest: str) -> str:
+    try:
+        value = int(rest.strip())
+    except ValueError:
+        return "❌ Usage: `/digest top <N>` where N=0 for threshold mode, or 1-20 for top-N mode"
+    if not 0 <= value <= 20:
+        return "❌ N must be between 0 (threshold mode) and 20."
+
+    cfg = await digest_db.load_config(db_path)
+    cfg.top_n = value
+    await digest_db.save_config(db_path, cfg)
+    if value == 0:
+        return f"✅ Top-N mode disabled. Using threshold {cfg.threshold}/10."
+    return f"✅ Top-{value} mode active. Every cycle delivers up to {value} highest-scored posts."
 
 
 async def _cmd_frequency(db_path: Path, rest: str) -> str:

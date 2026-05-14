@@ -81,3 +81,55 @@ class TestFormatDigest:
         result = format_digest(posts, threshold=7, window_start=time.time(), window_end=time.time())
         # Falls back to first chars of original text
         assert "original text here" in result[0]
+
+
+
+class TestTopNMode:
+    """Top-N mode: always include top N posts regardless of threshold."""
+
+    def test_top_n_includes_low_scored_posts(self):
+        posts = [
+            _make_post(1, "Ch", "ch", 9, "high"),
+            _make_post(2, "Ch", "ch", 4, "mid"),
+            _make_post(3, "Ch", "ch", 1, "low"),
+        ]
+        result = format_digest(
+            posts, threshold=7, window_start=1, window_end=2, top_n=5
+        )
+        assert len(result) == 1
+        # All three should appear because top_n=5 and we only have 3
+        assert "high" in result[0]
+        assert "mid" in result[0]
+        assert "low" in result[0]
+        assert "top 3 of 3 scanned" in result[0]
+
+    def test_top_n_caps_at_n(self):
+        posts = [_make_post(i, "Ch", "ch", 10 - i, f"item{i}") for i in range(1, 11)]
+        result = format_digest(
+            posts, threshold=7, window_start=1, window_end=2, top_n=3
+        )
+        assert "top 3 of 10 scanned" in result[0]
+        # Top 3 should be highest scores (item1=9, item2=8, item3=7)
+        assert "item1" in result[0]
+        assert "item2" in result[0]
+        assert "item3" in result[0]
+        assert "item10" not in result[0]
+
+    def test_top_n_empty_buffer(self):
+        result = format_digest([], threshold=7, window_start=1, window_end=2, top_n=5)
+        assert result == []
+
+    def test_top_n_zero_falls_back_to_threshold(self):
+        posts = [_make_post(1, "Ch", "ch", 4, "below threshold")]
+        result = format_digest(
+            posts, threshold=7, window_start=1, window_end=2, top_n=0
+        )
+        # top_n=0 == threshold mode == nothing meets threshold 7
+        assert result == []
+
+    def test_score_label_in_output(self):
+        posts = [_make_post(1, "Ch", "ch", 8, "ok")]
+        result = format_digest(
+            posts, threshold=7, window_start=1, window_end=2
+        )
+        assert "[8/10]" in result[0]
