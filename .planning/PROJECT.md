@@ -8,12 +8,16 @@ A personal Telegram userbot that runs under the user's own account, auto-transcr
 
 Every DM voice note gets a fast, accurate transcript within seconds, and the user only sees channel posts that actually matter to them.
 
-## Current Milestone: v1.1 — Smart Assistant
+## Current Milestone: v1.1 — Smart Assistant (SHIPPED)
 
 **Goal:** Add AI-powered channel digest so the user can follow many channels without notification overload.
 
-**Target features:**
+**Shipped features:**
 - Channel digest: batched LLM relevance filtering every 30 min, one summary message instead of 200 pings
+- SQLite persistence for user preferences and tracked channels
+- Interactive `/digest` command surface with setup wizard
+- Top-N mode (always deliver top N posts per cycle) + threshold fallback
+- Self-contained summaries with action steps and deal detection
 
 ## Requirements
 
@@ -25,17 +29,16 @@ Every DM voice note gets a fast, accurate transcript within seconds, and the use
 - ✓ Post transcripts as edited replies with ⏳ → final text flow — v1.0 Phase 4
 - ✓ Privacy-safe logging (hashed chat IDs, no transcript content at INFO) — v1.0 Phase 5
 - ✓ systemd deployment on Oracle VPS (158.101.214.234) — v1.0 Phase 6
+- ✓ Channel digest with LLM-filtered summaries delivered every 30 minutes — v1.1 Phase 7
+- ✓ SQLite persistence for digest preferences and tracked channels — v1.1 Phase 7
+- ✓ Interactive `/digest` command surface with setup wizard — v1.1 Phase 7
+- ✓ Top-N mode for guaranteed delivery of best posts — v1.1 Phase 7
+- ✓ Self-contained summaries with WHAT/WHERE/HOW details — v1.1 Phase 7
+- ✓ Deal detection and scam pattern flagging — v1.1 Phase 7
 
 ### Active
 
-- [ ] Background task collects new messages from user-selected channels into a buffer
-- [ ] Every N minutes (configurable), batch buffer is sent to Groq LLM for relevance scoring
-- [ ] LLM returns per-message scores against user's preferences, filtered to threshold
-- [ ] Filtered digest delivered to user's configured chat (default Saved Messages)
-- [ ] `/digest` command surface: setup, pause, resume, now, channels, prefs, stats, unsub
-- [ ] User preferences persisted in SQLite (no external DB)
-- [ ] Deduplication of near-duplicate posts across channels before scoring
-- [ ] No back-fill on first subscribe — digest starts from "now"
+- (Next milestone requirements will be defined when starting v1.2)
 
 ### Out of Scope
 
@@ -56,6 +59,7 @@ Every DM voice note gets a fast, accurate transcript within seconds, and the use
 - The user prefers a userbot (Telethon or Pyrogram) over a reply bot because it works transparently in every DM without forwarding.
 - faster-whisper was chosen over vanilla Whisper for speed, over Vosk for quality, and over Groq free tier for privacy and no quota limits.
 - Telegram userbot sessions require an API ID and API hash from https://my.telegram.org; first-login also needs the phone number and an SMS/app code.
+- **Current state**: v1.1 shipped and deployed live on Oracle VPS. Service runs as `tg-voice-transcriber.service` under system user `tgbot`. Connected as `@ComebackPlay`. 18 channels auto-tracked for digest. Voice transcription and channel digest both operational.
 
 ## Constraints
 
@@ -78,8 +82,10 @@ Every DM voice note gets a fast, accurate transcript within seconds, and the use
 | Scope limited to DMs and voice notes only for v1 | Keeps first milestone tight and shippable | ✓ Good |
 | Deploy as systemd service on Oracle VPS | Auto-restart, survives reboot, standard Linux tooling | ✓ Good |
 | Single-user / personal use | Simplifies auth, storage, and deployment | ✓ Good |
-| Use Llama 3.3 70B on Groq for v1.1 digest filtering | Same key pool, free tier supports 1M tokens/day per key; 30-min batching keeps cost near-zero | — Pending |
-| SQLite for v1.1 digest state (user prefs, dedupe cache) | No external DB needed, fits on the VPS, backup with session file | — Pending |
+| Use Llama 3.3 70B on Groq for v1.1 digest filtering | Same key pool, free tier supports 1M tokens/day per key; 30-min batching keeps cost near-zero | ✓ Good (v1.1) |
+| SQLite for v1.1 digest state (user prefs, dedupe cache) | No external DB needed, fits on the VPS, backup with session file | ✓ Good (v1.1) |
+| Top-N mode added to digest | User reported "looks broken because most cycles deliver nothing". Top-N guarantees at least N posts per cycle when buffer non-empty. | ✓ Good (v1.1) |
+| Self-contained summaries in digest | First LLM prompt produced terse "see post for details". Updated to require WHAT/WHERE/HOW/DEADLINE so user doesn't need to click source links. | ✓ Good (v1.1) |
 
 ## Evolution
 
@@ -99,4 +105,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-12 after initialization*
+*Last updated: 2026-05-15 after v1.1 milestone completion*

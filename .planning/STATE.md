@@ -1,22 +1,37 @@
+---
+gsd_state_version: 1.0
+milestone: v1.1
+milestone_name: Channel Digest
+status: archived
+last_updated: "2026-05-15T00:25:01.547+03:00"
+last_activity: 2026-05-15
+progress:
+  total_phases: 7
+  completed_phases: 7
+  total_plans: 2
+  completed_plans: 2
+  percent: 100
+---
+
 # STATE.md
 
 ## Project Reference
 
-See: `.planning/PROJECT.md` (updated 2026-05-12)
+See: `.planning/PROJECT.md` (updated 2026-05-15)
 
 **Core value:** Every DM voice note (incoming and outgoing) gets a readable Russian/English transcript posted as a reply within seconds, without any paid service. v1.1 adds an LLM-filtered channel-digest subsystem so the user can follow many channels without notification overload.
-**Current focus:** Milestone v1.1 complete — ready to archive.
+**Current focus:** Milestone v1.1 archived — planning next milestone.
 
 ## Current Position
 
-Phase: 7 — Channel Digest (v1.1)
-Plan: 07-01 (complete)
-Status: All milestone v1.1 work implemented, tested, and deployed live on the Oracle VPS. Ready for `/gsd-complete-milestone`.
-Last activity: 2026-05-14 — Phase 7 shipped (top-N mode + self-contained digest summaries, deployed)
+Phase: None (milestone complete)
+Plan: None
+Status: v1.1 milestone archived
+Last activity: 2026-05-15
 
 ## Milestone
 
-**Current:** v1.1 — Channel Digest (LLM-filtered subscribed-channel summaries delivered to Saved Messages)
+**Archived:** v1.1 — Channel Digest (LLM-filtered subscribed-channel summaries delivered to Saved Messages), shipped 2026-05-14
 **Previous:** v1.0 — personal userbot for DM voice-note transcription (Russian + English), shipped 2026-05-12
 
 ## Roadmap at a glance
@@ -49,4 +64,4 @@ Last activity: 2026-05-14 — Phase 7 shipped (top-N mode + self-contained diges
 
 ## Next Step
 
-`/gsd-complete-milestone` — archive milestone v1.1 (Phase 7 → Channel Digest). Optionally run `/gsd-verify-work 7` first for conversational UAT against the live digest, since no UAT.md exists for phase 7.
+`/gsd-new-milestone` — start next milestone (v1.2 or v2.0) with requirements gathering and roadmap planning.
