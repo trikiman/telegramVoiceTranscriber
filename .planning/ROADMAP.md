@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [x] **Phase 4: Event Wiring & Reply UX** — Listener + filter + queue + worker + placeholder/edit reply flow end to end
 - [x] **Phase 5: Hardening** — Bounded queue drop policy, FloodWait + retry, graceful shutdown, structured privacy-safe logging, long-transcript splitting
 - [x] **Phase 6: VPS Deployment** — Service user, filesystem layout, hardened systemd unit, journald verified, reboot survival — LIVE on 158.101.214.234
-- [ ] **Phase 7: Channel Digest (v1.1)** — LLM-filtered digest of subscribed channels, delivered to Saved Messages on a configurable schedule
+- [x] **Phase 7: Channel Digest (v1.1)** — LLM-filtered digest of subscribed channels, delivered to Saved Messages on a configurable schedule
 
 ## Phase Details
 
@@ -139,7 +139,7 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
+Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -149,3 +149,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 4. Event Wiring & Reply UX | 1/1 | Complete | 2026-05-12 |
 | 5. Hardening | 1/1 | Complete | 2026-05-12 |
 | 6. VPS Deployment | 1/1 | Complete | 2026-05-12 |
+| 7. Channel Digest (v1.1) | 1/1 | Complete | 2026-05-14 |
