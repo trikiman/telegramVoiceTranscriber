@@ -58,6 +58,15 @@ def register_digest_handler(
             )
             return
 
+        # Hard skip: user has explicitly unsubscribed (blocklist)
+        if await digest_db.is_channel_blocked(db_path, channel_id):
+            log.debug(
+                "digest_post_skipped_blocked",
+                channel_id_hashed=_hashed(channel_id),
+                msg_id=message.id,
+            )
+            return
+
         # Check if tracked
         is_tracked = await digest_db.is_channel_tracked(db_path, channel_id)
         if not is_tracked:

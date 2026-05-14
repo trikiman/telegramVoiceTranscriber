@@ -23,13 +23,19 @@ HELP_TEXT = """📋 Digest commands
 /digest resume           — resume scheduled digests
 /digest now              — send digest immediately (if any posts in buffer)
 /digest channels         — list tracked channels
+/digest blocked          — list blocked (permanently unsubscribed) channels
 /digest prefs            — show current preferences
 /digest prefs <text>     — update preferences
 /digest threshold <N>    — set relevance threshold (1-10) [threshold mode]
 /digest top <N>          — always show top N posts per cycle [0=threshold mode]
 /digest frequency <min>  — set digest frequency in minutes (min 5)
 /digest stats            — show last-7-day stats
-/digest unsub @name      — stop tracking a channel
+/digest unsub            — stop tracking a channel. Three forms:
+                           • /digest unsub @name           (public channels)
+                           • /digest unsub <chat_id>       (private — full -100… form or raw)
+                           • forward a post → reply to it with /digest unsub
+                           Adds the channel to a permanent blocklist.
+/digest sub @name|<id>   — remove from blocklist (re-allow auto-tracking)
 /digest help             — this message
 """
 
@@ -61,7 +67,7 @@ def register_command_handlers(
         log.info("digest_command_received", subcmd=subcmd)
 
         try:
-            reply = await _dispatch(client, db_path, scheduler, subcmd, rest)
+            reply = await _dispatch(client, db_path, scheduler, subcmd, rest, event)
         except Exception as exc:
             log.error("digest_command_failed", subcmd=subcmd, exc_info=True)
             reply = f"❌ command failed: {exc}"
@@ -75,6 +81,7 @@ async def _dispatch(
     scheduler: DigestScheduler,
     subcmd: str,
     rest: str,
+    event: events.NewMessage.Event,
 ) -> str:
     if subcmd in ("", "help"):
         return HELP_TEXT
@@ -95,6 +102,9 @@ async def _dispatch(
     if subcmd == "channels":
         return await _cmd_channels(db_path)
 
+    if subcmd == "blocked":
+        return await _cmd_blocked(db_path)
+
     if subcmd == "prefs":
         return await _cmd_prefs(db_path, rest)
 
@@ -111,7 +121,10 @@ async def _dispatch(
         return await _cmd_stats(db_path)
 
     if subcmd == "unsub":
-        return await _cmd_unsub(client, db_path, rest)
+        return await _cmd_unsub(client, db_path, rest, event)
+
+    if subcmd == "sub":
+        return await _cmd_sub(client, db_path, rest)
 
     return f"❓ unknown subcommand: {subcmd}\n\n{HELP_TEXT}"
 
@@ -285,25 +298,157 @@ async def _cmd_stats(db_path: Path) -> str:
     )
 
 
+async def _cmd_blocked(db_path: Path) -> str:
+    rows = await digest_db.list_blocked_channels(db_path)
+    if not rows:
+        return "ℹ Blocklist is empty."
+    lines = [f"🚫 {len(rows)} blocked channel(s):"]
+    for r in rows[:50]:
+        tag = f"@{r['channel_username']}" if r["channel_username"] else (r["channel_title"] or str(r["channel_id"]))
+        lines.append(f"• {tag} ({r['channel_id']})")
+    if len(rows) > 50:
+        lines.append(f"… and {len(rows) - 50} more")
+    return "\n".join(lines)
+
+
+def _normalize_channel_id(raw: str) -> int | None:
+    """Parse a numeric channel id. Accepts -100…, -…, or bare positive (which we mark as channel)."""
+    s = raw.strip()
+    if not s:
+        return None
+    try:
+        n = int(s)
+    except ValueError:
+        return None
+    if n < 0:
+        return n
+    # bare positive — treat as raw channel id, prepend -100
+    return int(f"-100{n}")
+
+
+async def _resolve_unsub_target(
+    client: TelegramClient,
+    rest: str,
+    event: events.NewMessage.Event,
+) -> tuple[int | None, str, str | None, str | None]:
+    """Resolve the channel to unsub from. Returns (channel_id, title, username, error).
+
+    Three sources, in priority order:
+      1. Numeric chat_id in `rest`
+      2. @name / username in `rest`
+      3. Reply to a forwarded message — extract original channel from its forward header
+    """
+    ref = rest.strip().lstrip("@")
+
+    # 1. Numeric ID
+    if ref:
+        as_int = _normalize_channel_id(ref)
+        if as_int is not None:
+            return as_int, str(as_int), None, None
+
+        # 2. @username / public channel
+        try:
+            entity = await client.get_entity(ref)
+        except Exception as exc:
+            return None, "", None, f"Could not resolve '{ref}': {exc}"
+
+        channel_id = entity.id
+        if hasattr(entity, "megagroup") or hasattr(entity, "broadcast"):
+            channel_id = int(f"-100{entity.id}")
+        title = getattr(entity, "title", None) or getattr(entity, "username", None) or str(channel_id)
+        username = getattr(entity, "username", None)
+        return channel_id, title, username, None
+
+    # 3. Reply to forwarded message
+    if event.message.is_reply:
+        replied = await event.message.get_reply_message()
+        if replied is None:
+            return None, "", None, "Could not load the replied-to message."
+
+        fwd = replied.forward
+        if fwd is None:
+            return None, "", None, "The replied-to message is not a forwarded message."
+
+        # Prefer fwd.chat_id (already marked, e.g. -100…)
+        chat_id = getattr(fwd, "chat_id", None)
+        chat = getattr(fwd, "chat", None)
+
+        if chat_id is None and chat is not None:
+            chat_id = chat.id
+            if hasattr(chat, "megagroup") or hasattr(chat, "broadcast"):
+                chat_id = int(f"-100{chat.id}")
+
+        if chat_id is None:
+            # Anonymous forward (sender hidden) — we have no id to block
+            from_name = getattr(fwd, "from_name", None) or "anonymous"
+            return None, "", None, (
+                f"Forward source is hidden ({from_name}). "
+                "Cannot unsubscribe without a chat_id. Use `/digest unsub <chat_id>` if you know it."
+            )
+
+        title = getattr(chat, "title", None) or getattr(chat, "username", None) or str(chat_id)
+        username = getattr(chat, "username", None) if chat else None
+        return chat_id, title, username, None
+
+    return None, "", None, (
+        "Usage:\n"
+        "  /digest unsub @channelname\n"
+        "  /digest unsub <chat_id>\n"
+        "  forward a post → reply to it with /digest unsub"
+    )
+
+
 async def _cmd_unsub(
     client: TelegramClient,
     db_path: Path,
     rest: str,
+    event: events.NewMessage.Event,
 ) -> str:
-    ref = rest.strip().lstrip("@")
-    if not ref:
-        return "❌ Usage: `/digest unsub @channelname`"
+    channel_id, title, username, err = await _resolve_unsub_target(client, rest, event)
+    if err is not None:
+        return f"❌ {err}"
+    if channel_id is None:
+        return "❌ Could not determine channel to unsubscribe."
 
-    try:
-        entity = await client.get_entity(ref)
-    except Exception as exc:
-        return f"❌ Could not resolve @{ref}: {exc}"
-
-    channel_id = entity.id
-    if hasattr(entity, "megagroup") or hasattr(entity, "broadcast"):
-        channel_id = int(f"-100{entity.id}")
+    label = f"@{username}" if username else title
 
     removed = await digest_db.remove_tracked_channel(db_path, channel_id)
+    blocked_added = await digest_db.add_blocked_channel(db_path, channel_id, title, username)
+
+    if removed and blocked_added:
+        return f"✅ Unsubscribed from {label} ({channel_id}) and added to blocklist."
+    if removed and not blocked_added:
+        return f"✅ Unsubscribed from {label} ({channel_id}). Already on blocklist."
+    if not removed and blocked_added:
+        return f"✅ {label} ({channel_id}) wasn't tracked — added to blocklist anyway."
+    return f"ℹ {label} ({channel_id}) was already not tracked and already blocked."
+
+
+async def _cmd_sub(
+    client: TelegramClient,
+    db_path: Path,
+    rest: str,
+) -> str:
+    """Remove a channel from the blocklist (re-allow auto-tracking)."""
+    ref = rest.strip().lstrip("@")
+    if not ref:
+        return "❌ Usage: `/digest sub @channelname` or `/digest sub <chat_id>`"
+
+    as_int = _normalize_channel_id(ref)
+    if as_int is not None:
+        channel_id = as_int
+        label = str(channel_id)
+    else:
+        try:
+            entity = await client.get_entity(ref)
+        except Exception as exc:
+            return f"❌ Could not resolve '{ref}': {exc}"
+        channel_id = entity.id
+        if hasattr(entity, "megagroup") or hasattr(entity, "broadcast"):
+            channel_id = int(f"-100{entity.id}")
+        label = f"@{ref}"
+
+    removed = await digest_db.remove_blocked_channel(db_path, channel_id)
     if removed:
-        return f"✅ Unsubscribed from @{ref}. Future posts will be ignored."
-    return f"ℹ @{ref} was not being tracked."
+        return f"✅ Removed {label} ({channel_id}) from blocklist. It can be auto-tracked again."
+    return f"ℹ {label} ({channel_id}) was not on the blocklist."

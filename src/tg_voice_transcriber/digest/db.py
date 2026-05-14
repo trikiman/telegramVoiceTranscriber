@@ -20,7 +20,7 @@ import structlog
 
 log = structlog.get_logger()
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -44,6 +44,15 @@ CREATE TABLE IF NOT EXISTS tracked_channels (
     channel_title    TEXT NOT NULL,
     channel_username TEXT,
     added_at         REAL NOT NULL DEFAULT (strftime('%s','now'))
+);
+
+-- Blocklist: channels the user explicitly unsubscribed from.
+-- Prevents default_track_all from re-adding them on the next post.
+CREATE TABLE IF NOT EXISTS blocked_channels (
+    channel_id       INTEGER PRIMARY KEY,
+    channel_title    TEXT NOT NULL DEFAULT '',
+    channel_username TEXT,
+    blocked_at       REAL NOT NULL DEFAULT (strftime('%s','now'))
 );
 
 CREATE TABLE IF NOT EXISTS post_buffer (
@@ -244,6 +253,65 @@ async def is_channel_tracked(path: Path, channel_id: int) -> bool:
             (channel_id,),
         )
         return (await cur.fetchone()) is not None
+
+
+async def add_blocked_channel(
+    path: Path,
+    channel_id: int,
+    title: str = "",
+    username: str | None = None,
+) -> bool:
+    """Add a channel to the blocklist. Idempotent — returns True if newly added."""
+    import aiosqlite
+
+    async with aiosqlite.connect(str(path)) as db:
+        try:
+            await db.execute(
+                "INSERT INTO blocked_channels (channel_id, channel_title, channel_username) VALUES (?, ?, ?)",
+                (channel_id, title, username),
+            )
+            await db.commit()
+            return True
+        except aiosqlite.IntegrityError:
+            return False
+
+
+async def remove_blocked_channel(path: Path, channel_id: int) -> bool:
+    """Remove a channel from the blocklist. Returns True if removed."""
+    import aiosqlite
+
+    async with aiosqlite.connect(str(path)) as db:
+        cur = await db.execute(
+            "DELETE FROM blocked_channels WHERE channel_id = ?",
+            (channel_id,),
+        )
+        await db.commit()
+        return cur.rowcount > 0
+
+
+async def is_channel_blocked(path: Path, channel_id: int) -> bool:
+    """Check if a channel is on the blocklist."""
+    import aiosqlite
+
+    async with aiosqlite.connect(str(path)) as db:
+        cur = await db.execute(
+            "SELECT 1 FROM blocked_channels WHERE channel_id = ? LIMIT 1",
+            (channel_id,),
+        )
+        return (await cur.fetchone()) is not None
+
+
+async def list_blocked_channels(path: Path) -> list[dict[str, Any]]:
+    """Return all blocked channels."""
+    import aiosqlite
+
+    async with aiosqlite.connect(str(path)) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT channel_id, channel_title, channel_username, blocked_at FROM blocked_channels ORDER BY blocked_at DESC"
+        )
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
 
 
 async def buffer_post(
