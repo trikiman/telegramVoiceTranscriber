@@ -23,7 +23,9 @@ from tg_voice_transcriber.formatter import format_placeholder
 from tg_voice_transcriber.groq_client import GroqClient
 from tg_voice_transcriber.groq_transcriber import GroqTranscriber
 from tg_voice_transcriber.handlers import register_handlers
+from tg_voice_transcriber.llm_failover import FailoverChatClient
 from tg_voice_transcriber.logging import configure_logging
+from tg_voice_transcriber.openrouter_client import OpenRouterClient
 from tg_voice_transcriber.queue import Job, create_queue
 from tg_voice_transcriber.reply import ReplyService
 from tg_voice_transcriber.transcriber import Transcriber
@@ -144,7 +146,36 @@ async def main() -> None:
             await digest_db.init_db(cfg.digest_db_path)
             digest_cfg = await digest_db.load_config(cfg.digest_db_path)
 
-            scorer = DigestScorer(groq_client, model=cfg.digest_llm_model)
+            # Build LLM client for digest scoring.
+            # If OpenRouter keys are configured, wrap Groq + OpenRouter in a
+            # failover client so the digest survives Groq outages / key bans.
+            llm_client: GroqClient | FailoverChatClient = groq_client
+            openrouter_client: OpenRouterClient | None = None
+            if cfg.openrouter_api_keys is not None:
+                openrouter_client = OpenRouterClient(
+                    api_keys=cfg.openrouter_api_keys.get_secret_value(),
+                )
+                try:
+                    openrouter_client.load()
+                    llm_client = FailoverChatClient(
+                        primary=groq_client,
+                        fallback=openrouter_client,
+                        fallback_model=cfg.digest_fallback_model,
+                    )
+                    log.info(
+                        "digest_llm_failover_enabled",
+                        primary="groq",
+                        fallback="openrouter",
+                        fallback_model=cfg.digest_fallback_model,
+                    )
+                except Exception as exc:
+                    log.warning(
+                        "openrouter_init_failed_continuing_groq_only",
+                        error=str(exc),
+                    )
+                    openrouter_client = None
+
+            scorer = DigestScorer(llm_client, model=cfg.digest_llm_model)
             digest_scheduler = DigestScheduler(
                 client=userbot.client,
                 db_path=cfg.digest_db_path,

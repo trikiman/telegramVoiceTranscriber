@@ -25,27 +25,33 @@ log = structlog.get_logger()
 class Worker:
     """Single-consumer worker that processes voice-note jobs sequentially.
 
+    Supports two transcription backends:
+    - Groq API (cloud): audio bytes sent directly, no FFmpeg needed
+    - Local faster-whisper: OGG → FFmpeg → PCM → whisper
+
     Pipeline per job:
     1. Send placeholder reply ("⏳ Transcribing…")
     2. Download voice-note bytes from Telegram
-    3. Convert OGG/Opus → PCM via AudioPipeline
-    4. Transcribe via faster-whisper (off-loop in executor)
-    5. Edit placeholder with final transcript (or error)
+    3. Transcribe (Groq direct, or FFmpeg→PCM→local)
+    4. Edit placeholder with final transcript (or error)
     """
 
     def __init__(
         self,
         queue: asyncio.Queue[Job],
         reply_service: ReplyService,
-        transcriber: Transcriber,
+        transcriber,  # Transcriber | GroqTranscriber — duck-typed
         config: Config,
         client,  # TelegramClient — for downloading media
+        *,
+        use_groq: bool = False,
     ) -> None:
         self._queue = queue
         self._reply = reply_service
         self._transcriber = transcriber
         self._config = config
         self._client = client
+        self._use_groq = use_groq
         self._running = False
         self._task: asyncio.Task | None = None
 
@@ -109,16 +115,28 @@ class Worker:
                 await self._reply.edit_message(job.chat_id, placeholder_id, format_error())
                 return
 
-            # 3. Convert OGG → PCM
-            pcm_result = convert_voice_note(
-                voice_bytes,
-                job.voice_duration_s,
-                min_duration_s=self._config.min_voice_duration_s,
-                max_duration_s=self._config.max_voice_duration_s,
-            )
+            # 3+4. Transcribe — two paths depending on backend
+            if self._use_groq:
+                # Duration guards (still useful to avoid burning Groq quota on bad audio)
+                if job.voice_duration_s < self._config.min_voice_duration_s:
+                    raise AudioTooShortError(job.voice_duration_s, self._config.min_voice_duration_s)
+                if job.voice_duration_s > self._config.max_voice_duration_s:
+                    raise AudioTooLongError(job.voice_duration_s, self._config.max_voice_duration_s)
 
-            # 4. Transcribe
-            transcript = await self._transcriber.transcribe(pcm_result.pcm_bytes)
+                # Groq accepts OGG directly — no FFmpeg step
+                transcript = await self._transcriber.transcribe_ogg(
+                    voice_bytes,
+                    language=self._config.default_language or None,
+                )
+            else:
+                # Local path: OGG → FFmpeg → PCM → local whisper
+                pcm_result = convert_voice_note(
+                    voice_bytes,
+                    job.voice_duration_s,
+                    min_duration_s=self._config.min_voice_duration_s,
+                    max_duration_s=self._config.max_voice_duration_s,
+                )
+                transcript = await self._transcriber.transcribe(pcm_result.pcm_bytes)
 
             # 5. Format and edit placeholder
             parts = format_transcript(transcript)

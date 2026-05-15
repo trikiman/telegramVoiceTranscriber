@@ -9,6 +9,7 @@ from typing import Any
 import structlog
 
 from tg_voice_transcriber.groq_client import GroqClient
+from tg_voice_transcriber.llm_failover import ChatCompletionClient
 
 log = structlog.get_logger()
 
@@ -83,7 +84,9 @@ def _build_user_prompt(posts: list[dict[str, Any]]) -> str:
 class DigestScorer:
     """Batches posts and scores them via the shared Groq client."""
 
-    def __init__(self, groq: GroqClient, model: str = DEFAULT_MODEL) -> None:
+    def __init__(self, groq: GroqClient | ChatCompletionClient, model: str = DEFAULT_MODEL) -> None:
+        # ``groq`` historical name; accepts any object with chat_completion().
+        # In production with v1.2+ this is a FailoverChatClient(primary=Groq, fallback=OpenRouter).
         self._groq = groq
         self._model = model
 

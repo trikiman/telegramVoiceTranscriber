@@ -50,6 +50,13 @@ class Config(BaseSettings):
     digest_llm_model: str = "llama-3.3-70b-versatile"
     digest_default_track_all: bool = True  # auto-add unknown channels to tracked list
 
+    # OpenRouter fallback (v1.2 — phase 8.1)
+    # If set, the digest scorer will fall back to OpenRouter when Groq
+    # raises any exception (rate-limited, all keys exhausted, network, etc.).
+    # Leave empty to disable failover and use Groq only.
+    openrouter_api_keys: SecretStr | None = None  # comma-separated, one or more
+    digest_fallback_model: str = "meta-llama/llama-3.3-70b-instruct:free"
+
     # Audio pipeline settings
     min_voice_duration_s: float = 1.0  # Skip voice notes shorter than this (whisper hallucinates)
     max_voice_duration_s: float = 600.0  # 10 minutes — reject longer (CPU hog)
