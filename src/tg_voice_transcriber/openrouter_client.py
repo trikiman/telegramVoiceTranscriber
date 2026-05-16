@@ -146,7 +146,7 @@ class OpenRouterClient:
         self,
         messages: list[dict],
         *,
-        model: str = "meta-llama/llama-3.3-70b-instruct:free",
+        model: str = "deepseek/deepseek-v4-flash:free",
         response_format: dict | None = None,
         temperature: float = 0.2,
         max_tokens: int | None = None,

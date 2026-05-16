@@ -55,7 +55,9 @@ class Config(BaseSettings):
     # raises any exception (rate-limited, all keys exhausted, network, etc.).
     # Leave empty to disable failover and use Groq only.
     openrouter_api_keys: SecretStr | None = None  # comma-separated, one or more
-    digest_fallback_model: str = "meta-llama/llama-3.3-70b-instruct:free"
+    # Default DeepSeek-V4-Flash :free — fast, 1M context, less upstream-throttled
+    # than Llama-3.3 free pool. Override via env if needed.
+    digest_fallback_model: str = "deepseek/deepseek-v4-flash:free"
 
     # Audio pipeline settings
     min_voice_duration_s: float = 1.0  # Skip voice notes shorter than this (whisper hallucinates)
