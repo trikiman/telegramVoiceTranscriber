@@ -18,21 +18,25 @@ def format_digest(
     window_start: float,
     window_end: float,
     top_n: int | None = None,
+    top_n_floor: int = 4,
 ) -> list[str]:
     """Format scored posts into one or more digest messages.
 
     Two modes:
     - Threshold mode (top_n=None): include posts with score >= threshold;
       empty list if nothing qualifies.
-    - Top-N mode (top_n=5): always include the top N posts by score regardless
-      of threshold. Returns empty only if scored is empty.
+    - Top-N mode (top_n=5): include up to N highest-scoring posts, but only
+      those that meet ``top_n_floor`` (default 4 — drops obvious trash like
+      proxy ads and "user is in profit" non-posts). Returns empty list if
+      nothing qualifies — better to skip a cycle than ship garbage.
     """
     if not scored:
         return []
 
     if top_n is not None and top_n > 0:
-        # Top-N mode: take highest-scoring posts (ties broken by original order)
-        relevant = sorted(scored, key=lambda p: -p.score)[:top_n]
+        # Top-N mode: highest-scoring posts that clear the floor
+        candidates = sorted(scored, key=lambda p: -p.score)[:top_n]
+        relevant = [p for p in candidates if p.score >= top_n_floor]
         if not relevant:
             return []
         header = _format_header(window_start, window_end, len(relevant), len(scored), top_n_mode=True)

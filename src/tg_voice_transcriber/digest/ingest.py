@@ -31,22 +31,38 @@ def register_digest_handler(
 
     @client.on(events.NewMessage(incoming=True))
     async def on_channel_post(event: events.NewMessage.Event) -> None:
-        """Capture channel posts matching the digest criteria."""
-        # Channels only (not groups, not DMs)
-        if not event.is_channel or event.is_group:
+        """Capture channel and (opt-in) supergroup posts matching the digest criteria.
+
+        Default policy:
+        - Broadcast channels: ingest everything; auto-add on first post if
+          ``default_track_all=True``.
+        - Supergroups (forum or regular): require explicit subscription via
+          ``/digest sub <chat_id>``. Never auto-add — they're chatty and would
+          blow up token spend.
+        - DMs and basic groups: hard skip.
+        """
+        # Skip DMs and legacy basic groups (only allow Telegram "channel" entities,
+        # which include both broadcast channels and supergroups).
+        if not event.is_channel:
             return
+
+        # Distinguish broadcast channel vs supergroup. Telethon sets
+        # ``event.is_group=True`` for supergroups (and basic groups, but those
+        # were already filtered above by ``is_channel``).
+        is_supergroup = bool(event.is_group)
 
         message = event.message
         text = (message.message or "").strip()
         channel_id = event.chat_id
 
-        # Log every channel post we see at DEBUG level for troubleshooting
+        # Log every post we see at DEBUG level for troubleshooting
         log.debug(
             "digest_channel_post_seen",
             channel_id_hashed=_hashed(channel_id),
             msg_id=message.id,
             text_length=len(text),
             has_media=message.media is not None,
+            is_supergroup=is_supergroup,
         )
 
         # Skip media-only or very short posts
@@ -70,8 +86,9 @@ def register_digest_handler(
         # Check if tracked
         is_tracked = await digest_db.is_channel_tracked(db_path, channel_id)
         if not is_tracked:
-            if default_track_all:
-                # Auto-add the channel
+            # Auto-track only broadcast channels. Supergroups always require
+            # explicit /digest sub to avoid runaway noise from chatty groups.
+            if default_track_all and not is_supergroup:
                 chat = await event.get_chat()
                 title = getattr(chat, "title", None) or getattr(chat, "username", None) or str(channel_id)
                 username = getattr(chat, "username", None)
@@ -85,6 +102,14 @@ def register_digest_handler(
                         title=title,
                     )
             else:
+                # Either default_track_all=False, or this is an untracked supergroup.
+                # Skip until the user explicitly subscribes.
+                if is_supergroup:
+                    log.debug(
+                        "digest_post_skipped_untracked_supergroup",
+                        channel_id_hashed=_hashed(channel_id),
+                        msg_id=message.id,
+                    )
                 return
 
         # Dedupe against recent posts

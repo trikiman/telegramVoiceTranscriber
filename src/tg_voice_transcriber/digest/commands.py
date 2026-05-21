@@ -28,6 +28,8 @@ HELP_TEXT = """📋 Digest commands
 /digest prefs <text>     — update preferences
 /digest threshold <N>    — set relevance threshold (1-10) [threshold mode]
 /digest top <N>          — always show top N posts per cycle [0=threshold mode]
+/digest floor <N>        — minimum score (0-10) for a post to appear in top-N
+                           digest. Default 4 drops obvious noise. 0 = no floor.
 /digest frequency <min>  — set digest frequency in minutes (min 5)
 /digest stats            — show last-7-day stats
 /digest unsub            — stop tracking a channel. Three forms:
@@ -113,6 +115,9 @@ async def _dispatch(
 
     if subcmd == "top":
         return await _cmd_top(db_path, rest)
+
+    if subcmd == "floor":
+        return await _cmd_floor(db_path, rest)
 
     if subcmd == "frequency":
         return await _cmd_frequency(db_path, rest)
@@ -262,6 +267,32 @@ async def _cmd_top(db_path: Path, rest: str) -> str:
     return f"✅ Top-{value} mode active. Every cycle delivers up to {value} highest-scored posts."
 
 
+async def _cmd_floor(db_path: Path, rest: str) -> str:
+    """Set the minimum score required for a post to be delivered in top-N mode.
+
+    A floor of 0 means top-N delivers regardless of score (legacy v1.1 behavior —
+    will ship trash). Default 4 drops obvious noise. 7 keeps only relevant posts.
+    """
+    try:
+        value = int(rest.strip())
+    except ValueError:
+        return (
+            "❌ Usage: `/digest floor <0-10>`\n\n"
+            "0  = no floor (top-N delivers regardless of score; risk of trash).\n"
+            "4  = recommended; drops obvious noise.\n"
+            "7+ = strict; only relevant posts even in top-N mode."
+        )
+    if not 0 <= value <= 10:
+        return "❌ Floor must be between 0 and 10."
+
+    cfg = await digest_db.load_config(db_path)
+    cfg.top_n_floor = value
+    await digest_db.save_config(db_path, cfg)
+    if value == 0:
+        return "✅ Top-N floor removed. Top posts will be delivered regardless of score."
+    return f"✅ Top-N floor set to {value}/10. Posts scoring below this are dropped from top-N digests."
+
+
 async def _cmd_frequency(db_path: Path, rest: str) -> str:
     try:
         minutes = int(rest.strip())
@@ -282,13 +313,21 @@ async def _cmd_stats(db_path: Path) -> str:
     seven_days_ago = time.time() - 7 * 86400
     s = await digest_db.recent_stats(db_path, since=seven_days_ago)
     tracked = await digest_db.list_tracked_channels(db_path)
+    cfg = await digest_db.load_config(db_path)
 
     noise_ratio = 0.0
     if s["scanned"] > 0:
         noise_ratio = (1 - s["delivered"] / s["scanned"]) * 100
 
+    if cfg.top_n > 0:
+        mode = f"top-{cfg.top_n} (floor {cfg.top_n_floor}/10)"
+    else:
+        mode = f"threshold {cfg.threshold}/10"
+
     return (
         "📊 Digest stats — last 7 days\n\n"
+        f"Mode: {mode}\n"
+        f"Frequency: every {cfg.frequency_s // 60} min\n"
         f"Scanned: {s['scanned']} posts\n"
         f"Delivered: {s['delivered']} ({100 - noise_ratio:.1f}%)\n"
         f"Filtered as noise: {noise_ratio:.1f}%\n"
@@ -429,15 +468,33 @@ async def _cmd_sub(
     db_path: Path,
     rest: str,
 ) -> str:
-    """Remove a channel from the blocklist (re-allow auto-tracking)."""
+    """Subscribe to a channel or supergroup.
+
+    Two effects:
+    - Removes it from the blocklist (re-allows future auto-tracking for channels)
+    - Adds it to ``tracked_channels`` (the only way to opt into a supergroup,
+      since supergroups are never auto-tracked due to chattiness).
+
+    Resolution priority: numeric chat_id (-100… or bare positive) → @username.
+    """
     ref = rest.strip().lstrip("@")
     if not ref:
         return "❌ Usage: `/digest sub @channelname` or `/digest sub <chat_id>`"
 
+    title = ""
+    username: str | None = None
+
     as_int = _normalize_channel_id(ref)
     if as_int is not None:
         channel_id = as_int
-        label = str(channel_id)
+        # Try to resolve nice title via Telegram entity (best-effort)
+        try:
+            entity = await client.get_entity(channel_id)
+            title = getattr(entity, "title", "") or ""
+            username = getattr(entity, "username", None)
+        except Exception as exc:
+            log.debug("digest_sub_resolve_failed", channel_id=channel_id, error=str(exc))
+        label = f"@{username}" if username else (title or str(channel_id))
     else:
         try:
             entity = await client.get_entity(ref)
@@ -446,9 +503,23 @@ async def _cmd_sub(
         channel_id = entity.id
         if hasattr(entity, "megagroup") or hasattr(entity, "broadcast"):
             channel_id = int(f"-100{entity.id}")
-        label = f"@{ref}"
+        title = getattr(entity, "title", "") or ""
+        username = getattr(entity, "username", None) or ref
+        label = f"@{username}"
 
-    removed = await digest_db.remove_blocked_channel(db_path, channel_id)
-    if removed:
-        return f"✅ Removed {label} ({channel_id}) from blocklist. It can be auto-tracked again."
-    return f"ℹ {label} ({channel_id}) was not on the blocklist."
+    # Effect 1: drop from blocklist
+    unblocked = await digest_db.remove_blocked_channel(db_path, channel_id)
+
+    # Effect 2: ensure in tracked_channels (idempotent)
+    added = await digest_db.add_tracked_channel(
+        db_path, channel_id, title or str(channel_id), username
+    )
+
+    bits = []
+    if unblocked:
+        bits.append("removed from blocklist")
+    if added:
+        bits.append("added to tracked channels")
+    if not bits:
+        return f"ℹ {label} ({channel_id}) was already tracked and not blocked."
+    return f"✅ {label} ({channel_id}): {' + '.join(bits)}."

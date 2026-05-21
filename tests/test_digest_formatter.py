@@ -88,13 +88,14 @@ class TestTopNMode:
     """Top-N mode: always include top N posts regardless of threshold."""
 
     def test_top_n_includes_low_scored_posts(self):
+        """Legacy v1.1 behavior preserved when top_n_floor=0."""
         posts = [
             _make_post(1, "Ch", "ch", 9, "high"),
             _make_post(2, "Ch", "ch", 4, "mid"),
             _make_post(3, "Ch", "ch", 1, "low"),
         ]
         result = format_digest(
-            posts, threshold=7, window_start=1, window_end=2, top_n=5
+            posts, threshold=7, window_start=1, window_end=2, top_n=5, top_n_floor=0
         )
         assert len(result) == 1
         # All three should appear because top_n=5 and we only have 3
@@ -106,7 +107,7 @@ class TestTopNMode:
     def test_top_n_caps_at_n(self):
         posts = [_make_post(i, "Ch", "ch", 10 - i, f"item{i}") for i in range(1, 11)]
         result = format_digest(
-            posts, threshold=7, window_start=1, window_end=2, top_n=3
+            posts, threshold=7, window_start=1, window_end=2, top_n=3, top_n_floor=0
         )
         assert "top 3 of 10 scanned" in result[0]
         # Top 3 should be highest scores (item1=9, item2=8, item3=7)

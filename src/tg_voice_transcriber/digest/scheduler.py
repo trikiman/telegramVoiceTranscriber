@@ -132,11 +132,16 @@ class DigestScheduler:
             window_start=cycle_start - cfg.frequency_s,
             window_end=cycle_end,
             top_n=cfg.top_n if cfg.top_n > 0 else None,
+            top_n_floor=cfg.top_n_floor,
         )
 
         # In top-N mode "delivered" = number of items in digest, not above threshold
         if cfg.top_n > 0:
-            delivered = min(cfg.top_n, len(scored))
+            # Count posts that actually cleared the floor (the digest may be empty)
+            delivered = sum(
+                1 for p in sorted(scored, key=lambda p: -p.score)[: cfg.top_n]
+                if p.score >= cfg.top_n_floor
+            )
         else:
             delivered = len([p for p in scored if p.score >= cfg.threshold])
 

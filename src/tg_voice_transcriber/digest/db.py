@@ -20,7 +20,7 @@ import structlog
 
 log = structlog.get_logger()
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS config (
     frequency_s       INTEGER NOT NULL DEFAULT 1800,
     paused            INTEGER NOT NULL DEFAULT 0,
     top_n             INTEGER NOT NULL DEFAULT 0,
+    top_n_floor       INTEGER NOT NULL DEFAULT 4,
     updated_at        REAL NOT NULL DEFAULT (strftime('%s','now'))
 );
 
@@ -99,6 +100,7 @@ class DigestConfig:
     frequency_s: int
     paused: bool
     top_n: int = 0  # 0 = threshold mode, >0 = always show top N regardless of threshold
+    top_n_floor: int = 4  # in top-N mode, drop posts scoring below this floor
 
     @property
     def ready(self) -> bool:
@@ -117,6 +119,10 @@ async def init_db(path: Path) -> None:
 
     Sets WAL mode for better concurrency between the ingest handler and the
     scheduler task.
+
+    Idempotent migrations are applied here for in-place upgrades of an existing
+    database (CREATE TABLE IF NOT EXISTS only adds missing tables, not new
+    columns on existing ones).
     """
     import aiosqlite
 
@@ -126,6 +132,12 @@ async def init_db(path: Path) -> None:
         await db.execute("PRAGMA journal_mode=WAL")
         await db.execute("PRAGMA foreign_keys=ON")
         await db.executescript(SCHEMA_SQL)
+
+        # In-place migrations for older DBs (CREATE TABLE IF NOT EXISTS does
+        # not add new columns to existing tables).
+        await _migrate_add_column_if_missing(
+            db, "config", "top_n_floor", "INTEGER NOT NULL DEFAULT 4"
+        )
 
         # Ensure config row exists
         await db.execute(
@@ -143,6 +155,23 @@ async def init_db(path: Path) -> None:
     log.info("digest_db_ready", path=str(path), schema_version=SCHEMA_VERSION)
 
 
+async def _migrate_add_column_if_missing(
+    db, table: str, column: str, type_clause: str
+) -> None:
+    """ALTER TABLE … ADD COLUMN if the column is not already present.
+
+    SQLite's ALTER TABLE has no IF NOT EXISTS clause, so we read the table
+    metadata via PRAGMA and only add when missing. Idempotent across restarts.
+    """
+    cur = await db.execute(f"PRAGMA table_info({table})")
+    rows = await cur.fetchall()
+    have = {r[1] for r in rows}  # row[1] is column name
+    if column in have:
+        return
+    await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {type_clause}")
+    log.info("digest_db_migration_applied", table=table, column=column)
+
+
 async def load_config(path: Path) -> DigestConfig:
     """Load the single-row config."""
     import aiosqlite
@@ -150,12 +179,12 @@ async def load_config(path: Path) -> DigestConfig:
     async with aiosqlite.connect(str(path)) as db:
         cur = await db.execute(
             "SELECT delivery_chat_id, user_prefs_text, threshold, frequency_s, paused, "
-            "COALESCE((SELECT top_n FROM config WHERE id = 1), 0) "
+            "COALESCE(top_n, 0), COALESCE(top_n_floor, 4) "
             "FROM config WHERE id = 1"
         )
         row = await cur.fetchone()
         if row is None:
-            return DigestConfig(None, "", 7, 1800, False, 0)
+            return DigestConfig(None, "", 7, 1800, False, 0, 4)
 
         return DigestConfig(
             delivery_chat_id=row[0],
@@ -164,6 +193,7 @@ async def load_config(path: Path) -> DigestConfig:
             frequency_s=int(row[3]),
             paused=bool(row[4]),
             top_n=int(row[5] or 0),
+            top_n_floor=int(row[6] or 4),
         )
 
 
@@ -181,6 +211,7 @@ async def save_config(path: Path, cfg: DigestConfig) -> None:
                    frequency_s      = ?,
                    paused           = ?,
                    top_n            = ?,
+                   top_n_floor      = ?,
                    updated_at       = strftime('%s','now')
              WHERE id = 1
             """,
@@ -191,6 +222,7 @@ async def save_config(path: Path, cfg: DigestConfig) -> None:
                 cfg.frequency_s,
                 1 if cfg.paused else 0,
                 cfg.top_n,
+                cfg.top_n_floor,
             ),
         )
         await db.commit()

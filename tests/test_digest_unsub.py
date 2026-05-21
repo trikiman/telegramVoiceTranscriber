@@ -166,18 +166,39 @@ class TestCmdUnsub:
 
 class TestCmdSub:
     async def test_sub_removes_from_blocklist(self, db_path):
-        from tg_voice_transcriber.digest.db import add_blocked_channel
+        """/digest sub <id> removes from blocklist AND adds to tracked_channels."""
+        from tg_voice_transcriber.digest.db import (
+            add_blocked_channel,
+            is_channel_tracked,
+        )
 
         cid = -1001930196351
         await add_blocked_channel(db_path, cid, "Коды ТГ")
 
         client = AsyncMock()
+        client.get_entity = AsyncMock(side_effect=Exception("offline"))
         reply = await _cmd_sub(client, db_path, str(cid))
 
-        assert "Removed" in reply
+        # New v9.2 message format: "<label> (<id>): <effects>"
+        assert "removed from blocklist" in reply
+        assert "added to tracked channels" in reply
         assert await is_channel_blocked(db_path, cid) is False
+        # Now also tracked
+        assert await is_channel_tracked(db_path, cid) is True
 
     async def test_sub_idempotent_when_not_blocked(self, db_path):
+        """If not blocked and not yet tracked, /digest sub still adds to tracked."""
+        from tg_voice_transcriber.digest.db import is_channel_tracked
+
         client = AsyncMock()
-        reply = await _cmd_sub(client, db_path, "-1009999999999")
-        assert "not on the blocklist" in reply
+        client.get_entity = AsyncMock(side_effect=Exception("offline"))
+        cid = -1009999999999
+        reply = await _cmd_sub(client, db_path, str(cid))
+        # First call: was not blocked, but was added to tracked
+        assert "added to tracked channels" in reply
+        assert "removed from blocklist" not in reply
+        assert await is_channel_tracked(db_path, cid) is True
+
+        # Second call: now both fully no-op
+        reply2 = await _cmd_sub(client, db_path, str(cid))
+        assert "already tracked and not blocked" in reply2
