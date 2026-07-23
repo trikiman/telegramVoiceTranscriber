@@ -8,6 +8,7 @@ From an empty repo to a hardened systemd-managed userbot on the Oracle VPS that 
 
 - ✅ **v1.0 MVP** — Phases 1-6 (shipped 2026-05-12)
 - ✅ **v1.1 Channel Digest** — Phase 7 (shipped 2026-05-14)
+- 🏃 **v1.2 VPN Trial Finder** — Phase 8 (planning)
 
 ## Phases
 
@@ -154,6 +155,22 @@ Plans:
 Plans:
 - [ ] 07-01: SQLite schema + Groq LLM chat client + channel ingest listener + batched scoring task + digest formatter + `/digest` command handlers
 
+### Phase 8: VPN Trial Finder (v1.2)
+**Goal**: Identify VPN/proxy trial offers (10+ days for 0-1 RUB) from ads, auto-start them, mute them, and organize them into a Telegram folder.
+**Depends on**: Phase 7
+**Requirements**: FINDER-01, FINDER-02, FINDER-03, FINDER-04, FINDER-05, FINDER-06, FINDER-07
+**Success Criteria** (what must be TRUE):
+  1. Telegram sponsored ads and proxy sponsor channels are fetched properly.
+  2. LLM accurately discriminates offers meeting the 10+ days and 0-1 RUB constraints.
+  3. Qualifying bot URLs are sent a `/start` payload.
+  4. Qualifying bots are successfully muted.
+  5. Qualifying bots are automatically added to the configured folder (e.g., "10 дней vpn").
+**Plans**: TBD
+
+Plans:
+- [ ] 08-01: Code review and verification of existing `finder` implementations.
+- [ ] 08-02: Live verification and final wiring.
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -165,3 +182,4 @@ Plans:
 | 5. Hardening | v1.0 | 1/1 | Complete | 2026-05-12 |
 | 6. VPS Deployment | v1.0 | 1/1 | Complete | 2026-05-12 |
 | 7. Channel Digest | v1.1 | 1/1 | Complete | 2026-05-14 |
+| 8. VPN Trial Finder | v1.2 | 0/2 | Planning | |

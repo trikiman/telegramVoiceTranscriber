@@ -8,16 +8,16 @@ A personal Telegram userbot that runs under the user's own account, auto-transcr
 
 Every DM voice note gets a fast, accurate transcript within seconds, and the user only sees channel posts that actually matter to them.
 
-## Current Milestone: v1.1 — Smart Assistant (SHIPPED)
+## Current Milestone: v1.2 — VPN Trial Finder
 
-**Goal:** Add AI-powered channel digest so the user can follow many channels without notification overload.
+**Goal:** Automatically extract VPN bots offering 10+ day trials for 0–1 RUB from Telegram ads/proxies, send `/start`, mute them, and add them to a Telegram folder.
 
-**Shipped features:**
-- Channel digest: batched LLM relevance filtering every 30 min, one summary message instead of 200 pings
-- SQLite persistence for user preferences and tracked channels
-- Interactive `/digest` command surface with setup wizard
-- Top-N mode (always deliver top N posts per cycle) + threshold fallback
-- Self-contained summaries with action steps and deal detection
+**Target features:**
+- Fetch sponsored messages (ads) and proxy sponsor channels
+- Use LLM to judge offers for 10+ days trial duration and 0-1 RUB price
+- Automatically send `/start` to qualifying bots
+- Automatically mute the bots to prevent notification spam
+- Automatically add qualifying bots to a designated Telegram folder (e.g., "10 дней vpn")
 
 ## Requirements
 

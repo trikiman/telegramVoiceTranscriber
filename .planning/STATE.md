@@ -1,16 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: Channel Digest
-status: archived
-last_updated: "2026-05-15T00:25:01.547+03:00"
+milestone: v1.2
+milestone_name: VPN Trial Finder
+current_phase_name: planning
+status: Phase 8 planning
+stopped_at: context exhaustion at 100% (2026-07-17)
+last_updated: "2026-07-17T15:57:29.545Z"
 last_activity: 2026-05-15
 progress:
-  total_phases: 7
-  completed_phases: 7
-  total_plans: 2
-  completed_plans: 2
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
 ---
 
 # STATE.md
@@ -20,17 +21,18 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-05-15)
 
 **Core value:** Every DM voice note (incoming and outgoing) gets a readable Russian/English transcript posted as a reply within seconds, without any paid service. v1.1 adds an LLM-filtered channel-digest subsystem so the user can follow many channels without notification overload.
-**Current focus:** Milestone v1.1 archived — planning next milestone.
+**Current focus:** Milestone v1.2 (VPN Trial Finder) — integrating and verifying Phase 8 finder code.
 
 ## Current Position
 
-Phase: None (milestone complete)
+Phase: 8 (VPN Trial Finder)
 Plan: None
-Status: v1.1 milestone archived
+Status: Planning
 Last activity: 2026-05-15
 
 ## Milestone
 
+**Current:** v1.2 — VPN Trial Finder (extract 10+ day VPN trials from ads, auto-start, mute, file to folder)
 **Archived:** v1.1 — Channel Digest (LLM-filtered subscribed-channel summaries delivered to Saved Messages), shipped 2026-05-14
 **Previous:** v1.0 — personal userbot for DM voice-note transcription (Russian + English), shipped 2026-05-12
 
@@ -64,4 +66,10 @@ Last activity: 2026-05-15
 
 ## Next Step
 
-`/gsd-new-milestone` — start next milestone (v1.2 or v2.0) with requirements gathering and roadmap planning.
+`/gsd-plan-phase` — to create a PLAN.md for Phase 8.
+
+## Session
+
+**Last session:** 2026-07-17T15:57:29.536Z
+**Stopped at:** context exhaustion at 100% (2026-07-17)
+**Resume file:** None
