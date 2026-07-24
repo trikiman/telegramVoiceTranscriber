@@ -109,9 +109,7 @@ def _looks_like_bot(
     if username.lower().endswith("bot"):
         return True
     # A ?start= deep link is only meaningful for bots.
-    if start_param:
-        return True
-    return False
+    return bool(start_param)
 
 
 def _first(q: dict[str, list[str]], *keys: str) -> str | None:

@@ -89,12 +89,24 @@ async def _process_candidate(
     folder,
     state: HarvestState,
     dry_run: bool,
+    db_path,
 ) -> None:
-    """Judge one candidate and, if good, file it (or record it in dry-run)."""
+    """Judge one candidate and, if good, file it (or record it in dry-run).
+
+    Dedupes against the ``found_offers`` table in finder.db BEFORE spending an
+    LLM call: the same (bot, offer text) pair collected on a prior run —
+    including a previous scheduled/day's run — is skipped, so repeated runs
+    never re-judge or re-/start bots already filed (and never burn the
+    /start budget on them).
+    """
     username = cand.username.lstrip("@").lower()
     if state.already_seen(username):
         return
     state.mark_seen(username)
+
+    offer_hash = finder_db.compute_offer_hash(cand.text)
+    if await finder_db.offer_already_found(db_path, f"@{username}", offer_hash):
+        return
 
     link_target = parse_tme_target(cand.build_url(), button_text=cand.button_text)
     judged = await judge.judge_offer(
@@ -141,14 +153,27 @@ async def _process_candidate(
         print(f"    ✗ @{bot}: error adding to folder: {exc}")
         return
 
+    state.record_filed(bot, days)
+    star = " ★30-day" if (days and days >= state.long_trial_days) else ""
     if added:
-        state.record_filed(bot, days)
-        star = " ★30-day" if (days and days >= state.long_trial_days) else ""
         print(f"    ✓ collected @{bot} [{tag}]{star} — {judged.summary}")
     else:
         # Already in the folder — count as satisfied so we don't loop forever.
-        state.record_filed(bot, days)
         print(f"    = @{bot} already in folder [{tag}] — {judged.summary}")
+
+    # Record for dedupe regardless of whether the folder add was new — we
+    # never want to re-/start or re-judge this exact offer text again.
+    with contextlib.suppress(Exception):
+        await finder_db.record_found_offer(
+            db_path,
+            target_bot=f"@{bot}",
+            offer_hash=offer_hash,
+            source_channel_id=cand.channel_id,
+            source_message_id=cand.message_id,
+            trial_days=days,
+            trial_price_rub=judged.trial_price_rub,
+            summary=judged.summary,
+        )
 
 
 async def main() -> int:
@@ -249,6 +274,7 @@ async def main() -> int:
                 await _process_candidate(
                     cand, judge=judge, starter=starter, client=client,
                     folder=folder, state=state, dry_run=args.dry_run,
+                    db_path=cfg.finder_db_path,
                 )
         except Exception as exc:  # noqa: BLE001
             log.warning("source_failed", source=source_name, error=str(exc))
