@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Active VPN Bot Harvester
 current_phase_name: complete
-status: Milestone v1.3 shipped — live harvest collected 5/5 bots
+status: Milestone v1.3 shipped — deployed to VPS, running autonomously daily
 stopped_at: n/a (milestone complete, 2026-07-24)
-last_updated: "2026-07-24T07:22:00.000Z"
+last_updated: "2026-07-24T09:35:00.000Z"
 last_activity: 2026-07-24
 progress:
   total_phases: 1
@@ -27,7 +27,9 @@ See: `.planning/PROJECT.md` (updated 2026-05-15)
 
 Phase: 9 (Active VPN Bot Harvester) — Complete
 Plan: 09-01 (written + executed 2026-07-24)
-Status: Live-verified. 148 tests green, ruff clean on patch files. Milestone v1.3 shipped.
+Status: Live-verified, dedupe-hardened, deployed to VPS with a daily systemd
+timer. 152 tests green, ruff clean. Milestone v1.3 fully shipped — the
+harvester now runs autonomously without operator involvement.
 Last activity: 2026-07-24
 
 ## Milestone
@@ -67,10 +69,19 @@ Last activity: 2026-07-24
   wrong folder, and had a folder-clobber bug. Fixed + unit-tested in Phase 9;
   requirements reset, then live-verified 2026-07-24: 5/5 bots (all 30-day)
   collected into "10+ days vpn" (folder id=13, 12→17 peers). Milestone shipped.
-  Note: the live run executed from the local dev machine (Windows), not the
-  VPS — the VPS has no `finder/` module or harvester scripts deployed. If
-  future harvester runs should happen on the VPS, that deploy step is still
-  outstanding (harvester code is committed to master and ready to `git pull`).
+  **Resolved 2026-07-24 (follow-up session):** the harvester is now deployed
+  on the VPS proper (was previously only run from the local dev machine).
+  `/opt/tg-voice-transcriber` is a real `git` checkout of `origin/master`
+  (was hand-copied files before, with no `finder/` module at all — old copy
+  backed up at `/opt/tg-voice-transcriber.bak-20260724090819`). A dedupe gap
+  was also found and fixed: the harvester judged/filed candidates but never
+  recorded them in `found_offers`, so a second run would have re-judged and
+  potentially re-`/start`ed the same bots. `tg-voice-harvester.timer` now
+  runs `scripts/harvest_vpn_bots.py` once daily (10:00 local ± 2h random
+  spread, `Persistent=true`) via a oneshot `tg-voice-harvester.service`,
+  fully independent of `tg-voice-transcriber.service` — a harvester issue
+  can never affect DM transcription. Verified end-to-end via `systemd-run`
+  with the real env file: dry-run found 5/5 candidates (all 30-day).
 - **Main userbot session invalidated 2026-07-23 18:11 UTC (`AuthKeyDuplicatedError`)** —
   root cause: local scripts on this machine used `.local/userbot.session`
   (the SAME account/session as the VPS, phone `+79166076650`) around the same
@@ -91,17 +102,19 @@ Last activity: 2026-07-24
 
 ## Next Step
 
-Milestone v1.3 is shipped — no immediate next step for the harvester. Two
-loose ends worth picking up when convenient:
+Milestone v1.3 is fully shipped — the harvester runs autonomously on the VPS
+with no operator involvement required. One loose end remains, unrelated to
+the harvester:
 
 1. **Re-authenticate the main userbot** (see Known Issues above) — the VPS
-   voice-transcription + digest service is currently down.
-2. **Optional**: deploy the harvester to the VPS proper (currently it only
-   ran from the local dev machine) if recurring/scheduled harvesting is
-   wanted instead of ad-hoc local runs.
+   voice-transcription + digest service is currently down
+   (`AuthKeyDuplicatedError`, main account, phone `+79166076650`). The
+   finder/harvester use a separate account and are unaffected and already
+   running independently via the timer.
 
 ## Session
 
-**Last session:** 2026-07-24T07:22:00.000Z
-**Stopped at:** Milestone v1.3 complete; main userbot re-auth flagged as follow-up
+**Last session:** 2026-07-24T09:35:00.000Z
+**Stopped at:** Milestone v1.3 fully shipped (deployed + autonomous); main
+userbot re-auth remains the only open follow-up, tracked above.
 **Resume file:** None

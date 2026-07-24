@@ -202,7 +202,12 @@ Plans:
   dry-run + flood/budget safety; unit-verified (148 tests). Live run 2026-07-24:
   dry-run found 5 candidates (all 30-day), live run collected 5/5, folder
   "10+ days vpn" (id=13) went 12→17 peers, all muted, dedupe recorded in
-  finder.db. Milestone v1.3 complete.)*
+  finder.db. Follow-up same day: fixed a dedupe gap (found_offers was never
+  written by the harvester, only checked by the passive scheduler — fixed +
+  4 new tests, 152 total), deployed the harvester to the VPS as a real git
+  checkout (was hand-copied files with no finder/ module before), and added
+  `tg-voice-harvester.timer` for a fully autonomous daily run. Milestone v1.3
+  complete and self-sustaining.)*
 
 ## Progress
 
