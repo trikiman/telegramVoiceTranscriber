@@ -1,171 +1,282 @@
 #!/usr/bin/env python3
-"""Active VPN Bot Harvester.
+"""Active VPN Bot Harvester (v1.3).
 
-Searches Telegram globally for messages promoting VPN trials, evaluates
-the offers using the existing OfferJudge, and automatically adds qualifying
-bots to the target folder.
-Stops once it finds 5 bots, ensuring at least one of them is a 30-day trial.
+Actively hunts VPN-trial bots across THREE discovery sources and files
+qualifying ones into the target folder until the quota is met, guaranteeing at
+least one long (30-day) trial:
+
+  1. global-search  — Telegram global message search over VPN queries
+  2. channel-feed   — scans your subscribed VPN channels' post feeds
+  3. sponsored      — "proxy sponsor" ads on your channels (best-effort)
+
+Each candidate is judged by the existing OfferJudge; good ones are /start-ed
+(with the referral token), muted, and added to the folder.
+
+Safety:
+  * --dry-run judges + reports candidates WITHOUT sending /start, muting, or
+    touching the folder. ALWAYS run this first.
+  * The folder is resolved by TITLE once, then pinned by ID in finder.db, so a
+    later rename never breaks the pipeline.
+  * A FloodWait circuit-breaker and a hard /start budget stop runaway behaviour.
+
+Usage:
+    python scripts/harvest_vpn_bots.py --dry-run          # safe preview
+    python scripts/harvest_vpn_bots.py                    # live run (5 bots)
+    python scripts/harvest_vpn_bots.py --limit 5 --no-sponsored
+    TG_VOICE_FINDER_FOLDER_TITLE="my folder" python scripts/harvest_vpn_bots.py
 """
 
 from __future__ import annotations
 
+import argparse
 import asyncio
-import re
+import contextlib
 import sys
 from pathlib import Path
 
-# Ensure the package is importable
+# Ensure the package is importable when run as a script.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 import structlog
 from telethon import TelegramClient
 
 from tg_voice_transcriber.config import get_config
-from tg_voice_transcriber.llm_failover import create_chat_client
-from tg_voice_transcriber.finder.judge import OfferJudge
-from tg_voice_transcriber.finder.starter import BotStarter
-from tg_voice_transcriber.finder.folder import find_folder_by_title, add_peer_to_folder
-from tg_voice_transcriber.finder.links import parse_tme_target
-
-# Configure logging
-structlog.configure(
-    wrapper_class=structlog.make_filtering_bound_logger(20),  # INFO
+from tg_voice_transcriber.finder import db as finder_db
+from tg_voice_transcriber.finder.folder import add_peer_to_folder, resolve_folder
+from tg_voice_transcriber.finder.harvest import (
+    Candidate,
+    FloodBreaker,
+    HarvestState,
+    iter_channel_feed_matches,
+    iter_global_message_matches,
+    iter_sponsored_matches,
 )
+from tg_voice_transcriber.finder.judge import OfferJudge
+from tg_voice_transcriber.finder.links import parse_tme_target
+from tg_voice_transcriber.finder.starter import BotStarter
+from tg_voice_transcriber.llm_failover import create_chat_client
+
+structlog.configure(wrapper_class=structlog.make_filtering_bound_logger(20))  # INFO
 log = structlog.get_logger()
 
-BOT_LINK_REGEX = re.compile(r"(?:https?://)?(?:t\.me/|@)([a-zA-Z0-9_]+bot)(?:\?start=([a-zA-Z0-9_-]+))?", re.IGNORECASE)
+BAR = "━" * 56
 
-async def main() -> None:
-    print("━" * 50)
-    print(" GSD ► Active VPN Bot Harvester")
-    print("━" * 50)
 
-    cfg = get_config()
-    
-    if not cfg.finder_phone:
-        print("✗ TG_VOICE_FINDER_PHONE is not set in .env")
+def _parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Active VPN Bot Harvester")
+    p.add_argument("--dry-run", action="store_true",
+                   help="Judge + report only; no /start, mute, or folder writes.")
+    p.add_argument("--limit", type=int, default=5,
+                   help="Number of bots to collect (default 5).")
+    p.add_argument("--no-30day", action="store_true",
+                   help="Do not require a 30-day trial among the results.")
+    p.add_argument("--max-start", type=int, default=15,
+                   help="Hard cap on /start attempts this run (ban safety).")
+    p.add_argument("--max-channels", type=int, default=40,
+                   help="Max channels to scan for feed/sponsored sources.")
+    p.add_argument("--no-search", action="store_true", help="Disable global search source.")
+    p.add_argument("--no-feeds", action="store_true", help="Disable channel-feed source.")
+    p.add_argument("--no-sponsored", action="store_true", help="Disable sponsored-ad source.")
+    return p.parse_args()
+
+
+async def _process_candidate(
+    cand: Candidate,
+    *,
+    judge: OfferJudge,
+    starter: BotStarter,
+    client: TelegramClient,
+    folder,
+    state: HarvestState,
+    dry_run: bool,
+) -> None:
+    """Judge one candidate and, if good, file it (or record it in dry-run)."""
+    username = cand.username.lstrip("@").lower()
+    if state.already_seen(username):
+        return
+    state.mark_seen(username)
+
+    link_target = parse_tme_target(cand.build_url(), button_text=cand.button_text)
+    judged = await judge.judge_offer(
+        text=cand.text[:1000],
+        channel_id=cand.channel_id,
+        message_id=cand.message_id,
+        link_target=link_target,
+    )
+
+    if judged is None:
+        return
+    if not judged.is_good_trial or judged.scam_suspected:
         return
 
-    # Use the same session as the finder scheduler
+    bot = (judged.target_bot or f"@{username}").lstrip("@")
+    days = judged.trial_days
+
+    # Quota already met and we only owe a long trial — skip anything shorter.
+    if not state.should_file(days):
+        print(f"    · skip @{bot} ({days}d) — quota met, only a 30-day trial left to find")
+        return
+
+    tag = f"{days}d" if days else "?d"
+    if dry_run:
+        state.record_start_attempt()
+        state.record_filed(bot, days)
+        star = " ★30-day" if (days and days >= state.long_trial_days) else ""
+        print(f"    ✓ WOULD collect @{bot} [{tag}]{star} — {judged.summary} [{cand.source}]")
+        return
+
+    # --- live path: /start (+token) + mute, then add to folder --------------
+    state.record_start_attempt()
+    started = await starter.start_and_mute(judged.target_bot or username, start_param=judged.start_param)
+    if not started:
+        print(f"    ✗ @{bot}: /start failed or rate-limited")
+        return
+
+    try:
+        entity = await client.get_entity(judged.target_bot or username)
+        added = await add_peer_to_folder(
+            client, folder, peer_id=entity.id, access_hash=getattr(entity, "access_hash", None)
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"    ✗ @{bot}: error adding to folder: {exc}")
+        return
+
+    if added:
+        state.record_filed(bot, days)
+        star = " ★30-day" if (days and days >= state.long_trial_days) else ""
+        print(f"    ✓ collected @{bot} [{tag}]{star} — {judged.summary}")
+    else:
+        # Already in the folder — count as satisfied so we don't loop forever.
+        state.record_filed(bot, days)
+        print(f"    = @{bot} already in folder [{tag}] — {judged.summary}")
+
+
+async def main() -> int:
+    args = _parse_args()
+    print(BAR)
+    print(f"  Active VPN Bot Harvester {'(DRY RUN)' if args.dry_run else ''}".rstrip())
+    print(BAR)
+
+    cfg = get_config()
+
     client = TelegramClient(
         session=str(cfg.finder_session_path),
         api_id=cfg.api_id,
         api_hash=cfg.api_hash.get_secret_value(),
     )
 
-    try:
-        await client.start(phone=cfg.finder_phone)
-    except Exception as exc:
-        print(f"✗ Failed to connect: {exc}")
-        print("  Did you get an AuthKeyDuplicatedError? Run scripts/login.py to create a new session!")
-        return
-        
-    print(f"✓ Connected to Telegram as finder account ({cfg.finder_phone}).")
+    # Fail FAST on an unauthorized session — never hang on an interactive prompt.
+    await client.connect()
+    if not await client.is_user_authorized():
+        print("✗ Finder session is NOT authorized.")
+        print("  Run:  python scripts/login-finder.py   (from your home IP, once)")
+        await client.disconnect()
+        return 1
 
-    llm = create_chat_client(cfg, for_finder=True)
+    me = await client.get_me()
+    print(f"✓ Connected as {me.first_name or ''} (@{me.username or '—'})")
+
+    # LLM (Groq primary + OpenRouter fallback) via the shared factory.
+    try:
+        llm = create_chat_client(cfg, for_finder=True)
+    except ValueError as exc:
+        print(f"✗ {exc}")
+        await client.disconnect()
+        return 1
     judge = OfferJudge(llm, model=cfg.finder_llm_model)
     starter = BotStarter(client, max_starts_per_hour=20)
-    
-    target_folder_name = "10 дней vpn"
-    folder = await find_folder_by_title(client, target_folder_name)
-    if not folder:
-        print(f"✗ Target folder '{target_folder_name}' not found!")
-        return
-        
-    print(f"✓ Folder '{target_folder_name}' resolved.")
-    
-    bots_added = 0
-    has_30_day = False
-    
-    # Global search queries that usually yield VPN ads
-    queries = [
-        "vpn 30 дней бесплатно",
-        "впн 30 дней бесплатно",
-        "vpn месяц бесплатно",
-        "впн бесплатно",
-        "vpn бесплатно"
-    ]
-    
-    # Keep track of bots we've already tried in this run
-    seen_bots = set()
 
-    for query in queries:
-        if bots_added >= 5 and has_30_day:
+    # Resolve the target folder: prefer a pinned id (rename-proof), else title.
+    title = cfg.finder_folder_title
+    pinned_id = None
+    try:
+        await finder_db.init_finder_db(cfg.finder_db_path)
+        db_cfg = await finder_db.load_finder_config(cfg.finder_db_path)
+        pinned_id = db_cfg.get("target_folder_id")
+    except Exception as exc:  # noqa: BLE001
+        log.debug("finder_db_unavailable", error=str(exc))
+
+    folder = await resolve_folder(client, title=title, folder_id=pinned_id)
+    if folder is None:
+        print(f"✗ Target folder '{title}' not found.")
+        print("  Set TG_VOICE_FINDER_FOLDER_TITLE to your exact folder name, or")
+        print("  create the folder in Telegram, then re-run.")
+        await llm.close()
+        await client.disconnect()
+        return 1
+
+    # Pin the resolved id so renames never break future runs.
+    try:
+        await finder_db.set_target_folder(cfg.finder_db_path, title=title, folder_id=folder.id)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("pin_folder_failed", error=str(exc))
+    print(f"✓ Folder '{title}' resolved (id={folder.id}, {len(folder.include_peers)} peers).")
+
+    state = HarvestState(
+        target_count=args.limit,
+        require_30_day=not args.no_30day,
+        max_start_attempts=args.max_start,
+    )
+
+    # Build the enabled discovery sources in priority order.
+    sources: list[tuple[str, object]] = []
+    if not args.no_search:
+        sources.append(("global-search", iter_global_message_matches(client)))
+    if not args.no_feeds:
+        sources.append(("channel-feed", iter_channel_feed_matches(client, max_channels=args.max_channels)))
+    if not args.no_sponsored:
+        sources.append(("sponsored", iter_sponsored_matches(client, max_channels=args.max_channels)))
+
+    stopped = False
+    for source_name, gen in sources:
+        if stopped:
             break
-            
-        print(f"\n▶ Searching globally for: '{query}'")
-        
-        async for msg in client.iter_messages(None, search=query, limit=30):
-            if bots_added >= 5 and has_30_day:
-                break
-                
-            text = msg.text or ""
-            if len(text) < 30:
-                continue
-                
-            # Extract possible bot links from the message text
-            matches = BOT_LINK_REGEX.findall(text)
-            for bot_username, start_token in matches:
-                bot_username = bot_username.lower()
-                
-                # Check if we've already processed this bot
-                if bot_username in seen_bots:
-                    continue
-                seen_bots.add(bot_username)
-                
-                print(f"  Found bot: @{bot_username}")
-                
-                # Reconstruct a t.me URL to pass to our parser so it can build the LinkTarget
-                simulated_url = f"https://t.me/{bot_username}"
-                if start_token:
-                    simulated_url += f"?start={start_token}"
-                    
-                link_target = parse_tme_target(simulated_url)
-                
-                # Judge the offer text
-                judged = await judge.judge_offer(
-                    text=text[:1000],
-                    channel_id=0, # Global search, no specific channel context needed for judge
-                    message_id=msg.id,
-                    link_target=link_target
+        print(f"\n▶ Source: {source_name}")
+        try:
+            async for cand in gen:
+                breaker = getattr(client, "_harvest_breaker", None)
+                if isinstance(breaker, FloodBreaker) and breaker.tripped:
+                    print("  ! FloodWait circuit-breaker tripped — stopping early to protect the account.")
+                    stopped = True
+                    break
+                if state.should_stop():
+                    stopped = True
+                    break
+                if state.budget_exhausted():
+                    print(f"  ! Reached /start budget ({state.max_start_attempts}) — stopping.")
+                    stopped = True
+                    break
+                await _process_candidate(
+                    cand, judge=judge, starter=starter, client=client,
+                    folder=folder, state=state, dry_run=args.dry_run,
                 )
-                
-                if judged and judged.is_good_trial and not judged.scam_suspected:
-                    print(f"    ✓ LLM Approved: {judged.summary}")
-                    
-                    # File the offer
-                    started = await starter.start_and_mute(
-                        judged.target_bot or bot_username, 
-                        start_param=judged.start_param
-                    )
-                    
-                    if started:
-                        try:
-                            # Add to folder
-                            bot_entity = await client.get_entity(judged.target_bot or bot_username)
-                            added = await add_peer_to_folder(
-                                client, folder, peer_id=bot_entity.id, access_hash=getattr(bot_entity, "access_hash", None)
-                            )
-                            if added:
-                                print(f"    ✓ Added to folder '{target_folder_name}'")
-                                bots_added += 1
-                                if judged.trial_days and judged.trial_days >= 30:
-                                    has_30_day = True
-                                    print("    ★ Found a 30+ day trial!")
-                            else:
-                                print(f"    ✗ Failed to add to folder.")
-                        except Exception as e:
-                            print(f"    ✗ Error adding to folder: {e}")
-                else:
-                    reason = "rejected by LLM" if judged else "LLM failed"
-                    if judged and judged.scam_suspected:
-                        reason = "scam suspected"
-                    print(f"    ✗ Skipped ({reason})")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("source_failed", source=source_name, error=str(exc))
+        finally:
+            aclose = getattr(gen, "aclose", None)
+            if aclose is not None:
+                with contextlib.suppress(Exception):  # pragma: no cover
+                    await aclose()
 
-    print("\n" + "━" * 50)
-    print(f"Harvest complete. Added {bots_added}/5 bots.")
-    if not has_30_day:
-        print("Note: Did not find a 30-day trial in this run.")
+    # --- summary -----------------------------------------------------------
+    print("\n" + BAR)
+    verb = "Would collect" if args.dry_run else "Collected"
+    print(f"  {verb} {state.bots_added}/{state.target_count} bots "
+          f"({len(state.seen_bots)} candidates seen, {state.start_attempts} start attempts).")
+    if state.require_30_day and not state.has_long_trial:
+        print("  ⚠ No 30-day trial found. Try subscribing to more VPN channels first:")
+        print("     python scripts/discover-channels.py")
+        print("     python scripts/subscribe-channels.py --from-log --commit")
+    elif state.has_long_trial:
+        print("  ★ Includes at least one 30-day trial.")
+    if args.dry_run:
+        print("  (dry run — nothing was started, muted, or filed.)")
+    print(BAR)
+
+    await llm.close()
+    await client.disconnect()
+    return 0
+
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    raise SystemExit(asyncio.run(main()))

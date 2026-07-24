@@ -9,7 +9,7 @@ From an empty repo to a hardened systemd-managed userbot on the Oracle VPS that 
 - ✅ **v1.0 MVP** — Phases 1-6 (shipped 2026-05-12)
 - ✅ **v1.1 Channel Digest** — Phase 7 (shipped 2026-05-14)
 - ✅ **v1.2 VPN Trial Finder** — Phase 8 (shipped 2026-07-23)
-- 🏃 **v1.3 Active VPN Bot Harvester** — Phase 9 (planning)
+- 🏃 **v1.3 Active VPN Bot Harvester** — Phase 9 (code complete + unit-verified; live VPS run pending)
 
 ## Phases
 
@@ -190,7 +190,9 @@ Plans:
 **Plans**: TBD
 
 Plans:
-- [ ] 09-01: Build `scripts/harvest_vpn_bots.py` and verify.
+- [x] 09-01: Build `scripts/harvest_vpn_bots.py` and verify. *(2026-07-24: fixed
+  import crash, rename-proof folder, clobber-proof adds, 3 discovery sources,
+  dry-run + flood/budget safety; unit-verified. Live VPS run pending.)*
 
 ## Progress
 
@@ -204,4 +206,4 @@ Plans:
 | 6. VPS Deployment | v1.0 | 1/1 | Complete | 2026-05-12 |
 | 7. Channel Digest | v1.1 | 1/1 | Complete | 2026-05-14 |
 | 8. VPN Trial Finder | v1.2 | 2/2 | Complete | 2026-07-23 |
-| 9. Active VPN Bot Harvester | v1.3 | 0/1 | Planning | |
+| 9. Active VPN Bot Harvester | v1.3 | 1/1 | Code complete (live pending) | |

@@ -2,11 +2,33 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-from tg_voice_transcriber.llm_failover import FailoverChatClient
+from tg_voice_transcriber.groq_client import GroqClient
+from tg_voice_transcriber.llm_failover import FailoverChatClient, create_chat_client
+from tg_voice_transcriber.openrouter_client import OpenRouterClient
+
+
+class _Secret:
+    """Minimal stand-in for pydantic SecretStr."""
+
+    def __init__(self, value: str) -> None:
+        self._value = value
+
+    def get_secret_value(self) -> str:
+        return self._value
+
+
+def _cfg(*, groq: str | None = None, openrouter: str | None = None) -> SimpleNamespace:
+    return SimpleNamespace(
+        groq_api_key=_Secret(groq) if groq is not None else None,
+        openrouter_api_keys=_Secret(openrouter) if openrouter is not None else None,
+        finder_fallback_model="fb-finder",
+        digest_fallback_model="fb-digest",
+    )
 
 
 class _FakeChatClient:
@@ -148,3 +170,43 @@ async def test_close_with_no_fallback() -> None:
     fc = FailoverChatClient(primary=primary, fallback=None)
     await fc.close()
     assert primary.closed
+
+
+# --- create_chat_client factory (guards the harvester's import-time crash) --
+
+def test_create_chat_client_requires_a_key() -> None:
+    with pytest.raises(ValueError, match="No LLM key"):
+        create_chat_client(_cfg())
+
+
+@pytest.mark.asyncio
+async def test_create_chat_client_groq_only() -> None:
+    fc = create_chat_client(_cfg(groq="gsk_test"))
+    assert isinstance(fc, FailoverChatClient)
+    assert isinstance(fc.primary, GroqClient)
+    assert fc.fallback is None
+    await fc.close()
+
+
+@pytest.mark.asyncio
+async def test_create_chat_client_openrouter_only() -> None:
+    fc = create_chat_client(_cfg(openrouter="sk-or-test"))
+    assert isinstance(fc.primary, OpenRouterClient)
+    assert fc.fallback is None
+    await fc.close()
+
+
+@pytest.mark.asyncio
+async def test_create_chat_client_failover_uses_finder_fallback_model() -> None:
+    fc = create_chat_client(_cfg(groq="gsk_test", openrouter="sk-or-test"), for_finder=True)
+    assert isinstance(fc.primary, GroqClient)
+    assert isinstance(fc.fallback, OpenRouterClient)
+    assert fc.fallback_model == "fb-finder"
+    await fc.close()
+
+
+@pytest.mark.asyncio
+async def test_create_chat_client_digest_fallback_model() -> None:
+    fc = create_chat_client(_cfg(groq="gsk_test", openrouter="sk-or-test"), for_finder=False)
+    assert fc.fallback_model == "fb-digest"
+    await fc.close()

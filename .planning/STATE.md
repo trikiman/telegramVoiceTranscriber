@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Active VPN Bot Harvester
-current_phase_name: planning
-status: Phase 9 planning
-stopped_at: context exhaustion at 100% (2026-07-17)
-last_updated: "2026-07-17T15:57:29.545Z"
-last_activity: 2026-05-15
+current_phase_name: implementation
+status: Phase 9 code complete + unit-verified; live VPS run pending
+stopped_at: awaiting operator live verification (2026-07-24)
+last_updated: "2026-07-24T06:20:00.000Z"
+last_activity: 2026-07-24
 progress:
   total_phases: 0
   completed_phases: 0
@@ -26,9 +26,9 @@ See: `.planning/PROJECT.md` (updated 2026-05-15)
 ## Current Position
 
 Phase: 9 (Active VPN Bot Harvester)
-Plan: None
-Status: Planning
-Last activity: 2026-07-23
+Plan: 09-01 (written + executed 2026-07-24)
+Status: Code complete + unit-verified (156 tests green, ruff clean). Live VPS run pending.
+Last activity: 2026-07-24
 
 ## Milestone
 
@@ -49,7 +49,7 @@ Last activity: 2026-07-23
 | 6 | VPS Deployment | v1.0 | Complete (live on 158.101.214.234) |
 | 7 | Channel Digest | v1.1 | Complete |
 | 8 | VPN Trial Finder | v1.2 | Complete |
-| 9 | VPN Harvester | v1.3 | Planning |
+| 9 | VPN Harvester | v1.3 | Code complete (live pending) |
 
 ## Accumulated Context
 
@@ -62,6 +62,10 @@ Last activity: 2026-07-23
 
 ## Known Issues / Debt
 
+- **v1.3 harvester was never live-verified before 2026-07-24** — prior sessions
+  marked HARVEST-01..04 done while the script crashed on import, targeted the
+  wrong folder, and had a folder-clobber bug. Fixed + unit-tested in Phase 9;
+  requirements reset and HARVEST-05 (live run) added. Live VPS run still pending.
 - **Groq key SPOF** — single working key after org-wide restriction; needs fallback provider or appeal.
 - **Test-data noise in digest channel** — a handful of synthetic test digest messages with fake `@steam_free_games_test` username remain in history. User can manually delete.
 - **No interactive `/digest unsub` numbered list** — current `/digest unsub @name` requires knowing the channel username.
@@ -69,7 +73,16 @@ Last activity: 2026-07-23
 
 ## Next Step
 
-`/gsd-plan-phase` — to create a PLAN.md for Phase 9.
+Live verification on the VPS finder account (the only step that can't be done
+off-box). On the VPS, in the project dir, as the finder account:
+
+1. `python scripts/set-finder-folder.py --list` then `python scripts/set-finder-folder.py`
+   (pins "10+ days vpn" by id in finder.db).
+2. `python scripts/harvest_vpn_bots.py --dry-run` (safe preview — no writes).
+3. `python scripts/harvest_vpn_bots.py` (live: files 5 bots incl. one 30-day).
+
+If few candidates appear, widen channel subscriptions first:
+`python scripts/discover-channels.py` → `python scripts/subscribe-channels.py --from-log --commit`.
 
 ## Session
 

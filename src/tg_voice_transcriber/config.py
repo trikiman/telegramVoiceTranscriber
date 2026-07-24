@@ -48,6 +48,12 @@ class Config(BaseSettings):
     finder_db_path: Path = Path(".local/finder.db")
     finder_enabled: bool = True  # master switch for the finder
     finder_scan_interval_s: int = 3600  # how often to scan channels (default hourly)
+    # Title of the Telegram folder (dialog filter) that collected VPN bots are
+    # filed into. This is the human-facing folder name in the chat list. The
+    # finder resolves it ONCE by title, then tracks it by folder id (persisted
+    # to finder.db), so renaming the folder later never breaks the pipeline.
+    # Override via TG_VOICE_FINDER_FOLDER_TITLE if you rename the folder.
+    finder_folder_title: str = "10+ days vpn"
     # Offer judging is a simple classification — use a small/cheap model so the
     # Groq free daily-token budget (100k/day) survives scanning 100+ channels.
     finder_llm_model: str = "llama-3.1-8b-instant"

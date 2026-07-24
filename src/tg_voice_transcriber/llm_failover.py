@@ -104,3 +104,77 @@ class FailoverChatClient:
                 await self.fallback.close()
             except Exception as exc:  # pragma: no cover
                 log.warning("llm_fallback_close_failed", error=str(exc))
+
+
+def create_chat_client(cfg: Any, *, for_finder: bool = False) -> FailoverChatClient:
+    """Build a ready-to-use :class:`FailoverChatClient` from config.
+
+    This centralises the Groq-primary / OpenRouter-fallback construction that
+    was previously copy-pasted across ``__main__.py`` and several scripts
+    (``dry-run-finder``, ``probe-bots``, ``test-judge`` …). Both underlying
+    clients are ``.load()``-ed here, so the returned object is usable
+    immediately and closes both providers via :meth:`FailoverChatClient.close`.
+
+    Args:
+        cfg: the application ``Config`` (see :mod:`tg_voice_transcriber.config`).
+        for_finder: when True, use the finder's fallback model
+            (``cfg.finder_fallback_model``); otherwise the digest's
+            (``cfg.digest_fallback_model``). The *primary* model is chosen by
+            the caller at ``chat_completion`` time, not here.
+
+    Returns:
+        A :class:`FailoverChatClient` wrapping Groq (primary) and, when
+        OpenRouter keys are configured, OpenRouter (fallback). If only one
+        provider is configured, the wrapper degenerates to a pass-through
+        around it.
+
+    Raises:
+        ValueError: if neither a Groq nor an OpenRouter key is configured.
+    """
+    # Imported lazily to keep this module import-light (judge.py imports it).
+    from tg_voice_transcriber.groq_client import GroqClient
+    from tg_voice_transcriber.openrouter_client import OpenRouterClient
+
+    fallback_model = (
+        cfg.finder_fallback_model if for_finder else cfg.digest_fallback_model
+    )
+
+    groq: GroqClient | None = None
+    groq_key = getattr(cfg, "groq_api_key", None)
+    if groq_key is not None and groq_key.get_secret_value():
+        groq = GroqClient(api_keys=groq_key.get_secret_value())
+        groq.load()
+
+    openrouter: OpenRouterClient | None = None
+    or_keys = getattr(cfg, "openrouter_api_keys", None)
+    if or_keys is not None and or_keys.get_secret_value():
+        candidate = OpenRouterClient(api_keys=or_keys.get_secret_value())
+        try:
+            candidate.load()
+            openrouter = candidate
+        except Exception as exc:  # pragma: no cover — defensive
+            log.warning("openrouter_init_failed_continuing", error=str(exc))
+            openrouter = None
+
+    if groq is not None and openrouter is not None:
+        log.info(
+            "llm_failover_created",
+            primary="groq",
+            fallback="openrouter",
+            fallback_model=fallback_model,
+            for_finder=for_finder,
+        )
+        return FailoverChatClient(
+            primary=groq, fallback=openrouter, fallback_model=fallback_model
+        )
+    if groq is not None:
+        log.info("llm_client_created", primary="groq", fallback=None)
+        return FailoverChatClient(primary=groq, fallback=None)
+    if openrouter is not None:
+        log.info("llm_client_created", primary="openrouter", fallback=None)
+        return FailoverChatClient(primary=openrouter, fallback=None)
+
+    raise ValueError(
+        "No LLM key configured. Set TG_VOICE_GROQ_API_KEY (recommended) "
+        "and/or TG_VOICE_OPENROUTER_API_KEYS in your environment/.env."
+    )

@@ -282,6 +282,7 @@ async def main() -> None:
                 db_path=cfg.finder_db_path,
                 judge=judge,
                 tracked_channel_ids=tracked_channels,
+                folder_title_fallback=cfg.finder_folder_title,
             )
             finder_scheduler.start()
 

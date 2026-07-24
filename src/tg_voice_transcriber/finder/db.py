@@ -8,7 +8,6 @@ Tables:
 from __future__ import annotations
 
 import hashlib
-import time
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +27,7 @@ CREATE TABLE IF NOT EXISTS finder_config (
     id                INTEGER PRIMARY KEY CHECK (id = 1),
     enabled           INTEGER NOT NULL DEFAULT 1,
     target_folder_id  INTEGER,
-    target_folder_title TEXT NOT NULL DEFAULT '10 дней vpn',
+    target_folder_title TEXT NOT NULL DEFAULT '10+ days vpn',
     scan_interval_s   INTEGER NOT NULL DEFAULT 3600,
     updated_at        REAL NOT NULL DEFAULT (strftime('%s','now'))
 );
@@ -76,7 +75,7 @@ async def init_finder_db(path: Path) -> None:
 
         # Ensure config row exists
         await db.execute(
-            "INSERT OR IGNORE INTO finder_config (id, target_folder_title) VALUES (1, '10 дней vpn')"
+            "INSERT OR IGNORE INTO finder_config (id, target_folder_title) VALUES (1, '10+ days vpn')"
         )
 
         # Record schema version
@@ -104,14 +103,14 @@ async def load_finder_config(path: Path) -> dict[str, Any]:
             return {
                 "enabled": True,
                 "target_folder_id": None,
-                "target_folder_title": "10 дней vpn",
+                "target_folder_title": "10+ days vpn",
                 "scan_interval_s": 3600,
             }
 
         return {
             "enabled": bool(row[0]),
             "target_folder_id": row[1],
-            "target_folder_title": row[2] or "10 дней vpn",
+            "target_folder_title": row[2] or "10+ days vpn",
             "scan_interval_s": int(row[3]),
         }
 
@@ -134,11 +133,45 @@ async def save_finder_config(path: Path, config: dict[str, Any]) -> None:
             (
                 1 if config.get("enabled", True) else 0,
                 config.get("target_folder_id"),
-                config.get("target_folder_title", "10 дней vpn"),
+                config.get("target_folder_title", "10+ days vpn"),
                 config.get("scan_interval_s", 3600),
             ),
         )
         await db.commit()
+
+
+async def set_target_folder(
+    path: Path,
+    *,
+    title: str,
+    folder_id: int | None = None,
+) -> None:
+    """Update just the target folder title and (optionally) its resolved id.
+
+    Ensures the config row exists first. Used by ``scripts/set-finder-folder.py``
+    and by the scheduler's auto-heal path when it resolves a folder by title and
+    wants to pin the id so future renames don't break resolution.
+    """
+    import aiosqlite
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    async with aiosqlite.connect(str(path)) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO finder_config (id, target_folder_title) VALUES (1, ?)",
+            (title,),
+        )
+        await db.execute(
+            """
+            UPDATE finder_config
+               SET target_folder_title = ?,
+                   target_folder_id = ?,
+                   updated_at = strftime('%s','now')
+             WHERE id = 1
+            """,
+            (title, folder_id),
+        )
+        await db.commit()
+    log.info("finder_target_folder_set", title=title, folder_id=folder_id)
 
 
 async def offer_already_found(path: Path, target_bot: str, offer_hash: str) -> bool:

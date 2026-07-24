@@ -15,9 +15,10 @@ from pathlib import Path
 
 import structlog
 from telethon import TelegramClient
+from telethon.errors import FloodWaitError
 
 from tg_voice_transcriber.finder import db as finder_db
-from tg_voice_transcriber.finder.folder import add_peer_to_folder, find_folder_by_title
+from tg_voice_transcriber.finder.folder import add_peer_to_folder, resolve_folder
 from tg_voice_transcriber.finder.judge import OfferJudge
 from tg_voice_transcriber.finder.links import parse_tme_target
 from tg_voice_transcriber.finder.sponsored import SponsoredMessageFetcher
@@ -35,11 +36,15 @@ class FinderScheduler:
         db_path: Path,
         judge: OfferJudge,
         tracked_channel_ids: list[int],
+        folder_title_fallback: str | None = None,
     ) -> None:
         self._client = client
         self._db_path = db_path
         self._judge = judge
         self._tracked_channels = tracked_channel_ids
+        # Config-level folder title used to auto-heal a stale DB title (e.g. the
+        # folder was renamed after the DB row was written).
+        self._folder_title_fallback = folder_title_fallback
         self._sponsored_fetcher = SponsoredMessageFetcher(client)
         self._starter = BotStarter(client, max_starts_per_hour=10)
         self._task: asyncio.Task | None = None
@@ -84,17 +89,56 @@ class FinderScheduler:
                 log.debug("finder_cycle_skipped", reason="disabled")
                 continue
 
-            await self._process_cycle(config)
+            try:
+                await self._process_cycle(config)
+            except FloodWaitError as exc:
+                # Respect Telegram's back-off; never hammer retries (ban risk).
+                wait_s = int(getattr(exc, "seconds", 60))
+                log.warning("finder_cycle_floodwait", seconds=wait_s)
+                try:
+                    await asyncio.sleep(min(wait_s, 3600))
+                except asyncio.CancelledError:
+                    break
+            except Exception:
+                log.error("finder_cycle_error", exc_info=True)
 
     async def _process_cycle(self, config: dict) -> None:
         """Scan channels, judge offers, file good ones."""
         log.info("finder_cycle_start", channels=len(self._tracked_channels))
 
-        # Resolve target folder once per cycle
-        folder = await find_folder_by_title(self._client, config["target_folder_title"])
+        # Resolve target folder once per cycle. Prefer the pinned id (rename-
+        # proof); fall back to the DB title, then to the config-level title.
+        folder = await resolve_folder(
+            self._client,
+            title=config["target_folder_title"],
+            folder_id=config.get("target_folder_id"),
+        )
+        if (
+            folder is None
+            and self._folder_title_fallback
+            and self._folder_title_fallback != config["target_folder_title"]
+        ):
+            folder = await resolve_folder(self._client, title=self._folder_title_fallback)
+            if folder is not None:
+                config["target_folder_title"] = self._folder_title_fallback
+
         if folder is None:
-            log.error("finder_folder_not_found", title=config["target_folder_title"])
+            log.error(
+                "finder_folder_not_found",
+                title=config["target_folder_title"],
+                fallback=self._folder_title_fallback,
+            )
             return
+
+        # Auto-heal: pin the resolved id (and any healed title) so future cycles
+        # are immune to renames and skip the by-name scan.
+        if config.get("target_folder_id") != folder.id:
+            config["target_folder_id"] = folder.id
+            try:
+                await finder_db.save_finder_config(self._db_path, config)
+                log.info("finder_folder_pinned", folder_id=folder.id, title=config["target_folder_title"])
+            except Exception as exc:  # noqa: BLE001
+                log.warning("finder_folder_pin_failed", error=str(exc))
 
         good_offers_filed = 0
         offers_scanned = 0
