@@ -1,0 +1,30 @@
+[Unit]
+Description=Active VPN Bot Harvester (v1.3) — one-shot run, triggered by tg-voice-harvester.timer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tgbot
+Group=tgbot
+WorkingDirectory=/opt/tg-voice-transcriber
+EnvironmentFile=/etc/tg-voice-transcriber/env
+# Default safety caps from scripts/harvest_vpn_bots.py: --limit 5 --max-start 15
+# (non-negotiable per .planning/research/PITFALLS.md — do not raise without review).
+ExecStart=/opt/tg-voice-transcriber/.venv/bin/python scripts/harvest_vpn_bots.py
+
+# No auto-retry on failure — a harvest failure (FloodWait, auth issue, no
+# candidates) should wait for the next scheduled run, not hammer Telegram.
+Restart=no
+
+# Runs on the SEPARATE finder account/session — never touches the main
+# userbot's session, so a harvester issue cannot affect DM transcription.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/var/lib/tg-voice-transcriber
+
+MemoryMax=400M
+CPUQuota=100%
+TimeoutStartSec=600

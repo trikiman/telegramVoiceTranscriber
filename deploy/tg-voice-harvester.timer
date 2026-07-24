@@ -1,0 +1,15 @@
+[Unit]
+Description=Run the Active VPN Bot Harvester once a day
+
+[Timer]
+# Once daily, anchored at 10:00 local server time, with a randomized delay
+# spread across ~2 hours so the run doesn't fire at the exact same clock
+# second every day (avoids a mechanical, easily-fingerprinted access pattern).
+OnCalendar=*-*-* 10:00:00
+RandomizedDelaySec=7200
+# If the VPS was down at the scheduled time, run once on the next boot
+# instead of silently skipping a whole day.
+Persistent=true
+
+[Install]
+WantedBy=timers.target
