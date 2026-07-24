@@ -9,7 +9,7 @@ From an empty repo to a hardened systemd-managed userbot on the Oracle VPS that 
 - ✅ **v1.0 MVP** — Phases 1-6 (shipped 2026-05-12)
 - ✅ **v1.1 Channel Digest** — Phase 7 (shipped 2026-05-14)
 - ✅ **v1.2 VPN Trial Finder** — Phase 8 (shipped 2026-07-23)
-- 🏃 **v1.3 Active VPN Bot Harvester** — Phase 9 (code complete + unit-verified; live VPS run pending)
+- ✅ **v1.3 Active VPN Bot Harvester** — Phase 9 (shipped 2026-07-24)
 
 ## Phases
 
@@ -36,6 +36,13 @@ From an empty repo to a hardened systemd-managed userbot on the Oracle VPS that 
 <summary>✅ v1.2 VPN Trial Finder (Phase 8) — SHIPPED 2026-07-23</summary>
 
 - [x] **Phase 8: VPN Trial Finder (v1.2)** — Passively scan sponsored ads for 10+ day VPN trials, send `/start`, mute, add to folder
+
+</details>
+
+<details>
+<summary>✅ v1.3 Active VPN Bot Harvester (Phase 9) — SHIPPED 2026-07-24</summary>
+
+- [x] **Phase 9: Active VPN Bot Harvester (v1.3)** — Actively search Telegram (global search, subscribed-channel feeds, sponsored ads) for VPN trial bots, `/start` + mute + file 5 qualifying bots (incl. ≥1 30-day) into "10+ days vpn", pinned by folder id
 
 </details>
 
@@ -192,7 +199,10 @@ Plans:
 Plans:
 - [x] 09-01: Build `scripts/harvest_vpn_bots.py` and verify. *(2026-07-24: fixed
   import crash, rename-proof folder, clobber-proof adds, 3 discovery sources,
-  dry-run + flood/budget safety; unit-verified. Live VPS run pending.)*
+  dry-run + flood/budget safety; unit-verified (148 tests). Live run 2026-07-24:
+  dry-run found 5 candidates (all 30-day), live run collected 5/5, folder
+  "10+ days vpn" (id=13) went 12→17 peers, all muted, dedupe recorded in
+  finder.db. Milestone v1.3 complete.)*
 
 ## Progress
 
@@ -206,4 +216,4 @@ Plans:
 | 6. VPS Deployment | v1.0 | 1/1 | Complete | 2026-05-12 |
 | 7. Channel Digest | v1.1 | 1/1 | Complete | 2026-05-14 |
 | 8. VPN Trial Finder | v1.2 | 2/2 | Complete | 2026-07-23 |
-| 9. Active VPN Bot Harvester | v1.3 | 1/1 | Code complete (live pending) | |
+| 9. Active VPN Bot Harvester | v1.3 | 1/1 | Complete | 2026-07-24 |
