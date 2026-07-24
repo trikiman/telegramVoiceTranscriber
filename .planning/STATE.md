@@ -1,9 +1,9 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2
-milestone_name: VPN Trial Finder
+milestone: v1.3
+milestone_name: Active VPN Bot Harvester
 current_phase_name: planning
-status: Phase 8 planning
+status: Phase 9 planning
 stopped_at: context exhaustion at 100% (2026-07-17)
 last_updated: "2026-07-17T15:57:29.545Z"
 last_activity: 2026-05-15
@@ -21,20 +21,21 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-05-15)
 
 **Core value:** Every DM voice note (incoming and outgoing) gets a readable Russian/English transcript posted as a reply within seconds, without any paid service. v1.1 adds an LLM-filtered channel-digest subsystem so the user can follow many channels without notification overload.
-**Current focus:** Milestone v1.2 (VPN Trial Finder) — integrating and verifying Phase 8 finder code.
+**Current focus:** Milestone v1.3 (Active VPN Bot Harvester) — running global search to seed the 10 дней vpn folder with 5 bots.
 
 ## Current Position
 
-Phase: 8 (VPN Trial Finder)
+Phase: 9 (Active VPN Bot Harvester)
 Plan: None
 Status: Planning
-Last activity: 2026-05-15
+Last activity: 2026-07-23
 
 ## Milestone
 
-**Current:** v1.2 — VPN Trial Finder (extract 10+ day VPN trials from ads, auto-start, mute, file to folder)
-**Archived:** v1.1 — Channel Digest (LLM-filtered subscribed-channel summaries delivered to Saved Messages), shipped 2026-05-14
-**Previous:** v1.0 — personal userbot for DM voice-note transcription (Russian + English), shipped 2026-05-12
+**Current:** v1.3 — Active VPN Bot Harvester (seed folder with 5 bots including 30-day trials)
+**Archived:** v1.2 — VPN Trial Finder (shipped 2026-07-23)
+**Archived:** v1.1 — Channel Digest (shipped 2026-05-14)
+**Previous:** v1.0 — personal userbot for DM voice-note transcription (shipped 2026-05-12)
 
 ## Roadmap at a glance
 
@@ -47,6 +48,8 @@ Last activity: 2026-05-15
 | 5 | Hardening | v1.0 | Complete |
 | 6 | VPS Deployment | v1.0 | Complete (live on 158.101.214.234) |
 | 7 | Channel Digest | v1.1 | Complete |
+| 8 | VPN Trial Finder | v1.2 | Complete |
+| 9 | VPN Harvester | v1.3 | Planning |
 
 ## Accumulated Context
 
@@ -66,7 +69,7 @@ Last activity: 2026-05-15
 
 ## Next Step
 
-`/gsd-plan-phase` — to create a PLAN.md for Phase 8.
+`/gsd-plan-phase` — to create a PLAN.md for Phase 9.
 
 ## Session
 

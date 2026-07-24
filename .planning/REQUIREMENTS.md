@@ -1,10 +1,16 @@
-# Milestone v1.2 Requirements
+# Milestone v1.3 Requirements
 
-### Finder
-- [ ] **FINDER-01**: Fetch sponsored messages (ads) and proxy sponsor channels to identify potential VPN/proxy offers.
-- [ ] **FINDER-02**: Evaluate fetched ads using an LLM to determine if they offer a VPN/proxy trial of 10 or more days for 0 or 1 RUB.
-- [ ] **FINDER-03**: Ignore offers that do not meet the criteria or are suspected scams.
-- [ ] **FINDER-04**: Send a `/start` message to the bots that pass the evaluation, including any referral payload if provided by the ad link.
-- [ ] **FINDER-05**: Automatically mute the bots after sending the `/start` message to avoid notification spam.
-- [ ] **FINDER-06**: Automatically add the successfully started bots to a specific Telegram Dialog Filter folder (e.g., "10 дней vpn").
-- [ ] **FINDER-07**: Rate-limit the `/start` commands and schedule the fetching process to avoid triggering Telegram's spam prevention mechanisms.
+### Harvester
+- [x] **HARVEST-01**: Script can search Telegram globally for "VPN 30 дней бесплатно"
+- [x] **HARVEST-02**: Script extracts bot usernames from search result texts
+- [x] **HARVEST-03**: Script runs extracted offers through the existing OfferJudge
+- [x] **HARVEST-04**: Script stops once 5 qualifying bots are found, requiring at least one 30-day trial
+
+### Traceability
+
+| REQ-ID | Description | Phase | Status |
+|--------|-------------|-------|--------|
+| HARVEST-01 | Search Telegram globally for VPN trials | Phase 9 | [x] Satisfied |
+| HARVEST-02 | Extract bot usernames from search texts | Phase 9 | [x] Satisfied |
+| HARVEST-03 | Evaluate offers using OfferJudge | Phase 9 | [x] Satisfied |
+| HARVEST-04 | Stop at 5 qualifying bots with one 30-day trial | Phase 9 | [x] Satisfied |

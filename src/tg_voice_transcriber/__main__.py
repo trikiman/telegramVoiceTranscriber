@@ -212,6 +212,97 @@ async def main() -> None:
             use_groq=cfg.use_groq,
         )
 
+    # Set up VPN Trial Finder (v1.2) — runs on a SEPARATE account (finder_phone)
+    # and builds its OWN Groq client. It is independent of cfg.use_groq, which
+    # only governs the main transcription account.
+    finder_scheduler = None
+    finder_wanted = cfg.finder_phone and cfg.finder_enabled
+    finder_has_key = cfg.groq_api_key is not None
+    if finder_wanted and finder_has_key:
+        try:
+            from tg_voice_transcriber.finder import db as finder_db
+            from tg_voice_transcriber.finder.judge import OfferJudge
+            from tg_voice_transcriber.finder.scheduler import FinderScheduler
+
+            # Init finder database
+            await finder_db.init_finder_db(cfg.finder_db_path)
+
+            # Build a separate TelegramClient for the finder account
+            finder_userbot = TelegramUserbot(
+                type("FinderConfig", (), {
+                    "session_path": cfg.finder_session_path,
+                    "api_id": cfg.api_id,
+                    "api_hash": cfg.api_hash,
+                    "phone": cfg.finder_phone,
+                })()
+            )
+            await finder_userbot.start()
+            finder_identity = await finder_userbot.who_am_i()
+
+            # Build the finder's OWN LLM client (independent of the digest /
+            # main account). Groq primary, with OpenRouter failover if keys are
+            # configured, so 24/7 scanning survives Groq daily-cap exhaustion.
+            finder_groq = GroqClient(api_keys=cfg.groq_api_key.get_secret_value())
+            finder_groq.load()
+            finder_llm: GroqClient | FailoverChatClient = finder_groq
+            if cfg.openrouter_api_keys is not None:
+                try:
+                    finder_or = OpenRouterClient(
+                        api_keys=cfg.openrouter_api_keys.get_secret_value(),
+                    )
+                    finder_or.load()
+                    finder_llm = FailoverChatClient(
+                        primary=finder_groq,
+                        fallback=finder_or,
+                        fallback_model=cfg.finder_fallback_model,
+                    )
+                    log.info(
+                        "finder_llm_failover_enabled",
+                        primary="groq",
+                        fallback="openrouter",
+                        fallback_model=cfg.finder_fallback_model,
+                    )
+                except Exception as exc:
+                    log.warning(
+                        "finder_openrouter_init_failed_continuing_groq_only",
+                        error=str(exc),
+                    )
+
+            judge = OfferJudge(finder_llm, model=cfg.finder_llm_model)
+
+            # Get list of channels the finder account is subscribed to
+            # (for now, all dialogs — later we can filter to VPN-related channels)
+            tracked_channels = []
+            async for dialog in finder_userbot.client.iter_dialogs():
+                if dialog.is_channel:
+                    tracked_channels.append(dialog.id)
+
+            finder_scheduler = FinderScheduler(
+                client=finder_userbot.client,
+                db_path=cfg.finder_db_path,
+                judge=judge,
+                tracked_channel_ids=tracked_channels,
+            )
+            finder_scheduler.start()
+
+            log.info(
+                "finder_ready",
+                account=finder_identity,
+                channels=len(tracked_channels),
+                scan_interval_s=cfg.finder_scan_interval_s,
+                model=cfg.finder_llm_model,
+            )
+        except Exception:
+            log.error("finder_init_failed", exc_info=True)
+            finder_scheduler = None
+    else:
+        log.info(
+            "finder_disabled",
+            finder_phone_set=bool(cfg.finder_phone),
+            finder_enabled=cfg.finder_enabled,
+            groq_key_set=finder_has_key,
+        )
+
     # Set up graceful shutdown on SIGTERM (systemd sends this on stop/restart)
     shutdown_event = asyncio.Event()
 
@@ -252,6 +343,8 @@ async def main() -> None:
         await worker.stop(grace_period_s=cfg.grace_period_s)
         if digest_scheduler is not None:
             await digest_scheduler.stop(grace_period_s=cfg.grace_period_s)
+        if finder_scheduler is not None:
+            await finder_scheduler.stop(grace_period_s=cfg.grace_period_s)
         if isinstance(transcriber, GroqTranscriber):
             await transcriber.close()
         else:
@@ -259,6 +352,14 @@ async def main() -> None:
         if groq_client is not None:
             await groq_client.close()
         await userbot.stop()
+        if finder_scheduler is not None:
+            # Stop the finder's separate client session
+            try:
+                finder_client = finder_scheduler._client
+                if finder_client.is_connected():
+                    await finder_client.disconnect()
+            except Exception:
+                log.warning("finder_client_disconnect_failed", exc_info=True)
 
 
 def _sync_main() -> None:

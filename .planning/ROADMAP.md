@@ -8,7 +8,8 @@ From an empty repo to a hardened systemd-managed userbot on the Oracle VPS that 
 
 - ✅ **v1.0 MVP** — Phases 1-6 (shipped 2026-05-12)
 - ✅ **v1.1 Channel Digest** — Phase 7 (shipped 2026-05-14)
-- 🏃 **v1.2 VPN Trial Finder** — Phase 8 (planning)
+- ✅ **v1.2 VPN Trial Finder** — Phase 8 (shipped 2026-07-23)
+- 🏃 **v1.3 Active VPN Bot Harvester** — Phase 9 (planning)
 
 ## Phases
 
@@ -28,6 +29,13 @@ From an empty repo to a hardened systemd-managed userbot on the Oracle VPS that 
 <summary>✅ v1.1 Channel Digest (Phase 7) — SHIPPED 2026-05-14</summary>
 
 - [x] **Phase 7: Channel Digest (v1.1)** — LLM-filtered digest of subscribed channels, delivered to Saved Messages on a configurable schedule
+
+</details>
+
+<details>
+<summary>✅ v1.2 VPN Trial Finder (Phase 8) — SHIPPED 2026-07-23</summary>
+
+- [x] **Phase 8: VPN Trial Finder (v1.2)** — Passively scan sponsored ads for 10+ day VPN trials, send `/start`, mute, add to folder
 
 </details>
 
@@ -168,8 +176,21 @@ Plans:
 **Plans**: TBD
 
 Plans:
-- [ ] 08-01: Code review and verification of existing `finder` implementations.
-- [ ] 08-02: Live verification and final wiring.
+- [x] 08-01: Code review and verification of existing `finder` implementations.
+- [x] 08-02: Live verification and final wiring.
+
+### Phase 9: Active VPN Bot Harvester (v1.3)
+**Goal**: Actively search Telegram for VPN bot trials and automatically file them to the folder until 5 bots are acquired, with at least one 30-day trial.
+**Depends on**: Phase 8
+**Requirements**: HARVEST-01, HARVEST-02, HARVEST-03, HARVEST-04
+**Success Criteria** (what must be TRUE):
+  1. Script successfully uses `SearchGlobalRequest` or similar to find messages with VPN bots.
+  2. The LLM accurately evaluates the text of the messages.
+  3. Script stops once it finds 5 bots and guarantees one is 30 days.
+**Plans**: TBD
+
+Plans:
+- [ ] 09-01: Build `scripts/harvest_vpn_bots.py` and verify.
 
 ## Progress
 
@@ -182,4 +203,5 @@ Plans:
 | 5. Hardening | v1.0 | 1/1 | Complete | 2026-05-12 |
 | 6. VPS Deployment | v1.0 | 1/1 | Complete | 2026-05-12 |
 | 7. Channel Digest | v1.1 | 1/1 | Complete | 2026-05-14 |
-| 8. VPN Trial Finder | v1.2 | 0/2 | Planning | |
+| 8. VPN Trial Finder | v1.2 | 2/2 | Complete | 2026-07-23 |
+| 9. Active VPN Bot Harvester | v1.3 | 0/1 | Planning | |

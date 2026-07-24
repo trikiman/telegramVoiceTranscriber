@@ -8,16 +8,16 @@ A personal Telegram userbot that runs under the user's own account, auto-transcr
 
 Every DM voice note gets a fast, accurate transcript within seconds, and the user only sees channel posts that actually matter to them.
 
-## Current Milestone: v1.2 — VPN Trial Finder
+## Current Milestone: v1.3 — Active VPN Bot Harvester
 
-**Goal:** Automatically extract VPN bots offering 10+ day trials for 0–1 RUB from Telegram ads/proxies, send `/start`, mute them, and add them to a Telegram folder.
+**Goal:** Actively hunt and populate the VPN folder with 5 bots, including at least one offering a 30-day trial for 0 or 1 RUB.
 
 **Target features:**
-- Fetch sponsored messages (ads) and proxy sponsor channels
-- Use LLM to judge offers for 10+ days trial duration and 0-1 RUB price
-- Automatically send `/start` to qualifying bots
-- Automatically mute the bots to prevent notification spam
-- Automatically add qualifying bots to a designated Telegram folder (e.g., "10 дней vpn")
+- Proactively search Telegram globally for VPN trial offers
+- Use the existing LLM judge to evaluate extracted offers
+- Automatically extract bot usernames and referral tokens from message text
+- Add qualifying bots to the "10 дней vpn" folder until the quota is met
+- Ensure at least one 30-day trial is found
 
 ## Requirements
 
@@ -38,7 +38,10 @@ Every DM voice note gets a fast, accurate transcript within seconds, and the use
 
 ### Active
 
-- (Next milestone requirements will be defined when starting v1.2)
+- [ ] HARVEST-01: Script can search Telegram globally for "VPN 30 дней бесплатно"
+- [ ] HARVEST-02: Script extracts bot usernames from search result texts
+- [ ] HARVEST-03: Script runs extracted offers through the existing OfferJudge
+- [ ] HARVEST-04: Script stops once 5 qualifying bots are found, requiring at least one 30-day trial
 
 ### Out of Scope
 
