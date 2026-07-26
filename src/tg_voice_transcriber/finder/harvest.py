@@ -319,11 +319,17 @@ async def iter_sponsored_matches(
     client,
     max_channels: int = 40,
 ) -> AsyncIterator[Candidate]:
-    """Yield bot candidates from sponsored ("proxy sponsor") ads on channels.
+    """Yield bot candidates from sponsored ads on channels AND on bot chats.
 
-    Best-effort: for many userbot accounts the sponsored-messages API returns
-    nothing (ads are an official-client / non-Premium feature), so this source
-    supplements — never replaces — the search/feed sources.
+    Bot chats matter as much as channels here: opening a VPN bot shows an ad
+    for a COMPETING VPN bot (chunkyvpn_bot advertises codex_vpn_bot,
+    lvk_vpn_bot advertises KakaduVpsbot). Scanning only ``is_channel`` peers
+    made that entire surface invisible even though every bot we collect adds
+    another ad slot to watch — the source compounds as the folder grows.
+
+    Best-effort: some peers return no ads at all (an official-client /
+    non-Premium feature), so this supplements — never replaces — the
+    search/feed sources.
     """
     import asyncio
 
@@ -336,13 +342,20 @@ async def iter_sponsored_matches(
     fetcher = SponsoredMessageFetcher(client)
 
     channels = []
+    bots = []
     try:
         async for dialog in client.iter_dialogs():
             if dialog.is_channel and not dialog.is_group:
                 channels.append(dialog)
+            elif dialog.is_user and getattr(dialog.entity, "bot", False):
+                bots.append(dialog)
     except Exception as exc:  # noqa: BLE001
         log.warning("sponsored_list_failed", error=str(exc))
         return
+
+    # Bot chats first: they are the newly-opened surface, they rotate ads
+    # aggressively, and they are the ones this source used to ignore entirely.
+    channels = bots + channels
 
     scanned = 0
     for dialog in channels:
