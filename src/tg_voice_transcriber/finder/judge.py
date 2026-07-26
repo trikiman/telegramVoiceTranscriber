@@ -22,6 +22,13 @@ log = structlog.get_logger()
 
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
 
+# Minimum free-trial length worth collecting, enforced IN CODE.
+# The prompt states this rule too, but a small judge model (8b) does not
+# reliably honour a numeric threshold expressed in prose — it approved a
+# 5-day offer while the prompt said "under 10 days → reject". Extraction is
+# the model's job; the arithmetic gate is ours.
+MIN_TRIAL_DAYS = 10
+
 # Cheap deterministic pre-filter. The LLM system prompt is ~450 tokens sent on
 # EVERY call, and the Groq free tier caps at 6000 TPM — so ~10 calls exhausts a
 # minute. Most sponsored ads are plainly not VPN trials (games, shops, IT
@@ -188,9 +195,11 @@ class OfferJudge:
         self,
         llm_client: ChatCompletionClient,
         model: str = DEFAULT_MODEL,
+        min_trial_days: int = MIN_TRIAL_DAYS,
     ) -> None:
         self._llm = llm_client
         self._model = model
+        self._min_trial_days = min_trial_days
 
     async def judge_offer(
         self,
@@ -278,17 +287,36 @@ class OfferJudge:
             target_bot = llm_bot
             start_param = None
 
+        trial_days = _parse_int_or_none(parsed.get("trial_days"))
+        is_good_trial = bool(parsed.get("is_good_trial", False))
+        summary = str(parsed.get("summary", "")).strip()[:200]
+
+        # Deterministic duration gate. The model approved a 5-day offer despite
+        # the prompt forbidding under-10, so the threshold is enforced here
+        # rather than trusted to prose. An unknown duration also fails: we file
+        # only offers whose length we could actually read.
+        if is_good_trial and (trial_days is None or trial_days < self._min_trial_days):
+            log.info(
+                "judge_below_min_days",
+                channel_id=channel_id,
+                trial_days=trial_days,
+                min_days=self._min_trial_days,
+            )
+            is_good_trial = False
+            shortfall = f"{trial_days}d" if trial_days is not None else "duration unknown"
+            summary = f"{summary} [rejected: {shortfall} < {self._min_trial_days}d]"[:200]
+
         return JudgedOffer(
             source_channel_id=channel_id,
             source_message_id=message_id,
             source_text=text[:500],  # truncate for storage
-            is_good_trial=bool(parsed.get("is_good_trial", False)),
-            trial_days=_parse_int_or_none(parsed.get("trial_days")),
+            is_good_trial=is_good_trial,
+            trial_days=trial_days,
             trial_price_rub=_parse_float_or_none(parsed.get("trial_price_rub")),
             scam_suspected=bool(parsed.get("scam_suspected", False)),
             target_bot=target_bot,
             start_param=start_param,
-            summary=str(parsed.get("summary", "")).strip()[:200],
+            summary=summary,
         )
 
     @staticmethod
