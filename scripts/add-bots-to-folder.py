@@ -8,10 +8,14 @@ Usage:
     python scripts/add-bots-to-folder.py vpn_chel_bot tanomivpnrobot
 """
 from __future__ import annotations
-import asyncio, sys
+
+import asyncio
+import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from telethon import TelegramClient
+
 from tg_voice_transcriber.config import get_config
 from tg_voice_transcriber.finder import db as finder_db
 from tg_voice_transcriber.finder.folder import add_peer_to_folder, resolve_folder
@@ -29,14 +33,16 @@ async def main() -> int:
                             cfg.api_hash.get_secret_value())
     await client.connect()
     if not await client.is_user_authorized():
-        print("NOT AUTHORIZED"); return 1
+        print("NOT AUTHORIZED")
+        return 1
 
     await finder_db.init_finder_db(cfg.finder_db_path)
     db_cfg = await finder_db.load_finder_config(cfg.finder_db_path)
     folder = await resolve_folder(client, title=cfg.finder_folder_title,
                                   folder_id=db_cfg.get("target_folder_id"))
     if folder is None:
-        print("Folder not found"); return 1
+        print("Folder not found")
+        return 1
     print(f"Folder id={folder.id}, {len(folder.include_peers)} peers before")
 
     for uname in usernames:

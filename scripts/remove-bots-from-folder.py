@@ -8,11 +8,15 @@ Usage:
     python scripts/remove-bots-from-folder.py tanomivpnrobot
 """
 from __future__ import annotations
-import asyncio, sys
+
+import asyncio
+import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from telethon import TelegramClient
 from telethon.tl.functions.messages import UpdateDialogFilterRequest
+
 from tg_voice_transcriber.config import get_config
 from tg_voice_transcriber.finder import db as finder_db
 from tg_voice_transcriber.finder.folder import find_folder_by_id, resolve_folder
@@ -29,14 +33,16 @@ async def main() -> int:
                             cfg.api_hash.get_secret_value())
     await client.connect()
     if not await client.is_user_authorized():
-        print("NOT AUTHORIZED"); return 1
+        print("NOT AUTHORIZED")
+        return 1
 
     await finder_db.init_finder_db(cfg.finder_db_path)
     db_cfg = await finder_db.load_finder_config(cfg.finder_db_path)
     folder = await resolve_folder(client, title=cfg.finder_folder_title,
                                   folder_id=db_cfg.get("target_folder_id"))
     if folder is None:
-        print("Folder not found"); return 1
+        print("Folder not found")
+        return 1
 
     # Resolve target peer ids from usernames.
     target_ids: set[int] = set()
@@ -51,7 +57,8 @@ async def main() -> int:
     # Re-fetch live filter right before writing (clobber-proof).
     live = await find_folder_by_id(client, folder.id)
     if live is None:
-        print("Folder disappeared"); return 1
+        print("Folder disappeared")
+        return 1
 
     before = len(live.include_peers)
     kept = []

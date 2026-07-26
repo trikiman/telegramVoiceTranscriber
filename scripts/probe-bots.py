@@ -20,6 +20,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import random
 import re
 import sys
@@ -126,10 +127,8 @@ async def main() -> None:
             print(f"  [{i}/{len(bots)}] @{uname}: resolve failed ({exc})")
             continue
 
-        try:
+        with contextlib.suppress(Exception):
             await client(UnblockRequest(id=bot))
-        except Exception:
-            pass
 
         try:
             await client.send_message(bot, "/start")

@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import random
 import sys
 from pathlib import Path
@@ -113,10 +114,8 @@ async def main() -> int:
 
         uname = getattr(entity, "username", None) or f"id{pid}"
 
-        try:
+        with contextlib.suppress(Exception):
             await client(UnblockRequest(id=entity))
-        except Exception:
-            pass
 
         try:
             await client.send_message(entity, "/start")
