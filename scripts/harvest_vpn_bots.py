@@ -47,6 +47,7 @@ from tg_voice_transcriber.finder.harvest import (
     Candidate,
     FloodBreaker,
     HarvestState,
+    extract_bot_links,
     iter_channel_feed_matches,
     iter_global_message_matches,
     iter_sponsored_matches,
@@ -90,6 +91,10 @@ def _parse_args() -> argparse.Namespace:
                    help="Hard cap on /start attempts this run (ban safety).")
     p.add_argument("--max-channels", type=int, default=40,
                    help="Max channels to scan for feed/sponsored sources.")
+    p.add_argument("--max-chain", type=int, default=25,
+                   help="Max bots to follow that were advertised inside other bots.")
+    p.add_argument("--no-chain", action="store_true",
+                   help="Disable following bots advertised inside other bots.")
     p.add_argument("--no-search", action="store_true", help="Disable global search source.")
     p.add_argument("--no-feeds", action="store_true", help="Disable channel-feed source.")
     p.add_argument("--no-sponsored", action="store_true", help="Disable sponsored-ad source.")
@@ -106,6 +111,7 @@ async def _process_candidate(
     state: HarvestState,
     dry_run: bool,
     db_path,
+    chain_out: list[Candidate] | None = None,
 ) -> None:
     """Judge one candidate, verify it live, and file it if it holds up.
 
@@ -197,6 +203,24 @@ async def _process_candidate(
         return
 
     live_text, live_buttons = await fetch_bot_welcome(client, entity)
+
+    # Bots advertise other bots. A VPN bot's welcome screen routinely carries
+    # promos for competitors ("NekoBox — получите 15 дней бесплатно"), which is
+    # a discovery source that feeds itself: every bot we open can reveal more.
+    # Queue them regardless of whether THIS bot's own offer turns out good.
+    if chain_out is not None and live_text:
+        for chained, token in extract_bot_links(live_text):
+            if chained == username or state.already_seen(chained):
+                continue
+            chain_out.append(
+                Candidate(
+                    username=chained,
+                    start_token=token,
+                    text=live_text[:1500],
+                    source="bot-chain",
+                    channel_id=cand.channel_id,
+                )
+            )
 
     stage2 = None
     if live_text:
@@ -351,6 +375,8 @@ async def main() -> int:
     if not args.no_sponsored:
         sources.append(("sponsored", iter_sponsored_matches(client, max_channels=args.max_channels)))
 
+    chain_queue: list[Candidate] = [] if not args.no_chain else None
+
     stopped = False
     for source_name, gen in sources:
         if stopped:
@@ -373,7 +399,7 @@ async def main() -> int:
                 await _process_candidate(
                     cand, judge=judge, starter=starter, client=client,
                     folder=folder, state=state, dry_run=args.dry_run,
-                    db_path=cfg.finder_db_path,
+                    db_path=cfg.finder_db_path, chain_out=chain_queue,
                 )
         except Exception as exc:  # noqa: BLE001
             log.warning("source_failed", source=source_name, error=str(exc))
@@ -382,6 +408,29 @@ async def main() -> int:
             if aclose is not None:
                 with contextlib.suppress(Exception):  # pragma: no cover
                     await aclose()
+
+    # --- follow bots advertised inside the bots we just opened --------------
+    # Processed last so the primary sources get first claim on the /start
+    # budget, and iteratively: a chained bot's own screen can reveal more.
+    if chain_queue and not stopped:
+        print(f"\n▶ Source: bot-chain ({len(chain_queue)} queued from bot screens)")
+        followed = 0
+        while chain_queue and followed < args.max_chain:
+            breaker = getattr(client, "_harvest_breaker", None)
+            if isinstance(breaker, FloodBreaker) and breaker.tripped:
+                print("  ! FloodWait circuit-breaker tripped — stopping.")
+                break
+            if state.should_stop():
+                break
+            if state.budget_exhausted():
+                print(f"  ! Reached /start budget ({state.max_start_attempts}) — stopping.")
+                break
+            followed += 1
+            await _process_candidate(
+                chain_queue.pop(0), judge=judge, starter=starter, client=client,
+                folder=folder, state=state, dry_run=args.dry_run,
+                db_path=cfg.finder_db_path, chain_out=chain_queue,
+            )
 
     # --- summary -----------------------------------------------------------
     print("\n" + BAR)
