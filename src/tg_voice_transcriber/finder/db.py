@@ -15,7 +15,7 @@ import structlog
 
 log = structlog.get_logger()
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -35,6 +35,11 @@ CREATE TABLE IF NOT EXISTS finder_config (
 -- found_offers: dedupe cache of offers we've already collected.
 -- Keyed by (target_bot, offer_hash) so we don't file the same bot twice
 -- for the same offer, but DO file it again if a new/different offer appears.
+-- verified_good: whether the offer survived LIVE welcome-screen verification
+-- (finder/verify.py) — 0 means the ad/search-text looked good but the bot's
+-- real /start screen debunked it (e.g. "free" was conditional on payment or
+-- a review screenshot). Rows written before schema v2 default to 1 since
+-- only good offers were ever recorded prior to two-stage verification.
 CREATE TABLE IF NOT EXISTS found_offers (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     target_bot      TEXT NOT NULL,
@@ -45,6 +50,7 @@ CREATE TABLE IF NOT EXISTS found_offers (
     trial_price_rub REAL,
     summary         TEXT NOT NULL,
     found_at        REAL NOT NULL DEFAULT (strftime('%s','now')),
+    verified_good   INTEGER NOT NULL DEFAULT 1,
     UNIQUE(target_bot, offer_hash)
 );
 
@@ -77,6 +83,25 @@ async def init_finder_db(path: Path) -> None:
         await db.execute(
             "INSERT OR IGNORE INTO finder_config (id, target_folder_title) VALUES (1, '10+ days vpn')"
         )
+
+        # Migration: pre-v2 databases have found_offers without verified_good.
+        # Additive, safe, and idempotent — guarded by a column-existence check
+        # rather than relying on try/except, since a bare ALTER TABLE would
+        # otherwise fail loudly on every subsequent startup once the column
+        # exists.
+        cur = await db.execute("PRAGMA table_info(found_offers)")
+        columns = {row[1] for row in await cur.fetchall()}
+        if "verified_good" not in columns:
+            try:
+                await db.execute(
+                    "ALTER TABLE found_offers "
+                    "ADD COLUMN verified_good INTEGER NOT NULL DEFAULT 1"
+                )
+            except Exception as exc:  # noqa: BLE001 — defensive against a
+                # concurrent migration race (two processes touching the same
+                # file at once); "duplicate column" is the only expected
+                # failure here and is harmless either way.
+                log.debug("verified_good_migration_race", error=str(exc))
 
         # Record schema version
         await db.execute(
@@ -195,8 +220,17 @@ async def record_found_offer(
     trial_days: int | None,
     trial_price_rub: float | None,
     summary: str,
+    verified_good: bool = True,
 ) -> bool:
-    """Record a newly found offer. Returns True if newly inserted, False if duplicate."""
+    """Record a found offer. Returns True if newly inserted, False if duplicate.
+
+    ``verified_good`` distinguishes a genuinely filed offer (survived live
+    welcome-screen verification) from one recorded ONLY to stop the harvester
+    re-`/start`-ing the same ad text on a future run after it was debunked
+    (see finder/verify.py) — set False for the latter. Defaults True for
+    callers (e.g. the passive v1.2 scheduler) that don't yet do two-stage
+    verification.
+    """
     import aiosqlite
 
     async with aiosqlite.connect(str(path)) as db:
@@ -204,10 +238,13 @@ async def record_found_offer(
             await db.execute(
                 """
                 INSERT INTO found_offers (target_bot, offer_hash, source_channel_id, source_message_id,
-                                          trial_days, trial_price_rub, summary)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                                          trial_days, trial_price_rub, summary, verified_good)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (target_bot, offer_hash, source_channel_id, source_message_id, trial_days, trial_price_rub, summary),
+                (
+                    target_bot, offer_hash, source_channel_id, source_message_id,
+                    trial_days, trial_price_rub, summary, 1 if verified_good else 0,
+                ),
             )
             await db.commit()
             return True
@@ -223,7 +260,7 @@ async def list_found_offers(path: Path, limit: int = 50) -> list[dict[str, Any]]
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
             """
-            SELECT target_bot, summary, trial_days, trial_price_rub, found_at
+            SELECT target_bot, summary, trial_days, trial_price_rub, found_at, verified_good
               FROM found_offers
              ORDER BY found_at DESC
              LIMIT ?

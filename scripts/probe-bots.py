@@ -33,6 +33,7 @@ from telethon.tl.functions.contacts import UnblockRequest
 from tg_voice_transcriber.config import get_config
 from tg_voice_transcriber.finder.judge import OfferJudge
 from tg_voice_transcriber.finder.mute import mute_peer
+from tg_voice_transcriber.finder.verify import fetch_bot_welcome
 from tg_voice_transcriber.groq_client import GroqClient
 from tg_voice_transcriber.llm_failover import FailoverChatClient
 from tg_voice_transcriber.openrouter_client import OpenRouterClient
@@ -59,19 +60,6 @@ def _bots_from_log() -> list[str]:
         seen.add(low)
         out.append(n)
     return out
-
-
-def _collect_buttons(msg) -> list[str]:
-    labels: list[str] = []
-    markup = getattr(msg, "reply_markup", None)
-    if not markup:
-        return labels
-    for row in getattr(markup, "rows", []) or []:
-        for btn in getattr(row, "buttons", []) or []:
-            t = getattr(btn, "text", None)
-            if t:
-                labels.append(t)
-    return labels
 
 
 def _build_llm(cfg):
@@ -150,12 +138,7 @@ async def main() -> None:
             await mute_peer(client, bot)
             continue
 
-        await asyncio.sleep(random.uniform(3.0, 5.0))
-
-        msgs = await client.get_messages(bot, limit=3)
-        welcome = next((m for m in msgs if (m.message or "").strip()), None)
-        text = (welcome.message if welcome else "") or ""
-        buttons = _collect_buttons(welcome) if welcome else []
+        text, buttons = await fetch_bot_welcome(client, bot)
 
         judged = None
         if len(text) >= 15:

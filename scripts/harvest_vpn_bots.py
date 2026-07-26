@@ -54,12 +54,27 @@ from tg_voice_transcriber.finder.harvest import (
 from tg_voice_transcriber.finder.judge import OfferJudge
 from tg_voice_transcriber.finder.links import parse_tme_target
 from tg_voice_transcriber.finder.starter import BotStarter
+from tg_voice_transcriber.finder.verify import fetch_bot_welcome
 from tg_voice_transcriber.llm_failover import create_chat_client
 
 structlog.configure(wrapper_class=structlog.make_filtering_bound_logger(20))  # INFO
 log = structlog.get_logger()
 
 BAR = "━" * 56
+
+# Heuristic markers for a subscribe-gate bot (e.g. @TProxyRobot-style: "join
+# these channels, then press I've subscribed"). These bots' first reply is
+# gate copy, not real trial terms, so the live judge correctly rejects them
+# as "no explicit trial claim" — a safe false-negative, not a bug. Tagged
+# distinctly so a human can review gate-suspected rejects separately from
+# genuinely bad offers, rather than auto-clicking through gates (out of scope
+# for this fix — see plan).
+_GATE_MARKERS = ("подпишитесь", "подписаться на кан", "я подписался", "check_join")
+
+
+def _looks_like_gate(text: str) -> bool:
+    low = text.lower()
+    return any(m in low for m in _GATE_MARKERS)
 
 
 def _parse_args() -> argparse.Namespace:
@@ -91,13 +106,21 @@ async def _process_candidate(
     dry_run: bool,
     db_path,
 ) -> None:
-    """Judge one candidate and, if good, file it (or record it in dry-run).
+    """Judge one candidate, verify it live, and file it if it holds up.
 
-    Dedupes against the ``found_offers`` table in finder.db BEFORE spending an
-    LLM call: the same (bot, offer text) pair collected on a prior run —
-    including a previous scheduled/day's run — is skipped, so repeated runs
-    never re-judge or re-/start bots already filed (and never burn the
-    /start budget on them).
+    Two-stage judging: ad/search/post text is UNRELIABLE marketing copy (live
+    verification found bots claiming "30 days free" that were actually 24
+    hours, 2 days, or gated behind a review screenshot once really opened —
+    see finder/verify.py). Stage 1 judges the discovery-source text as a cheap
+    pre-filter. Stage 2 — only reached after `/start`-ing the bot — judges its
+    REAL welcome screen, and that verdict is authoritative: filing only
+    happens if stage 2 also says good, using the LIVE trial_days/summary (not
+    the ad-claimed ones).
+
+    Dedupes against `found_offers` in finder.db BEFORE spending an LLM call OR
+    a `/start`: the same (bot, offer text) pair — whether previously FILED or
+    previously DEBUNKED at stage 2 — is skipped, so repeated runs never
+    re-judge, re-`/start`, or re-fall for the same bad ad text.
     """
     username = cand.username.lstrip("@").lower()
     if state.already_seen(username):
@@ -109,43 +132,97 @@ async def _process_candidate(
         return
 
     link_target = parse_tme_target(cand.build_url(), button_text=cand.button_text)
-    judged = await judge.judge_offer(
+    stage1 = await judge.judge_offer(
         text=cand.text[:1000],
         channel_id=cand.channel_id,
         message_id=cand.message_id,
         link_target=link_target,
     )
 
-    if judged is None:
+    if stage1 is None:
         return
-    if not judged.is_good_trial or judged.scam_suspected:
-        return
-
-    bot = (judged.target_bot or f"@{username}").lstrip("@")
-    days = judged.trial_days
-
-    # Quota already met and we only owe a long trial — skip anything shorter.
-    if not state.should_file(days):
-        print(f"    · skip @{bot} ({days}d) — quota met, only a 30-day trial left to find")
+    if not stage1.is_good_trial or stage1.scam_suspected:
         return
 
-    tag = f"{days}d" if days else "?d"
+    bot = (stage1.target_bot or f"@{username}").lstrip("@")
+    ad_days = stage1.trial_days
+
+    # Quota already met and we only owe a long trial — skip anything shorter
+    # (checked against the AD-claimed days here; re-checked against the LIVE
+    # days after verification too, since the ad can both over- and
+    # under-state the real offer).
+    if not state.should_file(ad_days):
+        print(f"    · skip @{bot} ({ad_days}d ad-claimed) — quota met, only a 30-day trial left to find")
+        return
+
     if dry_run:
+        # Dry-run never /starts a bot (that would be a write), so it can only
+        # preview the UNVERIFIED ad-text judgment — make that explicit.
         state.record_start_attempt()
-        state.record_filed(bot, days)
-        star = " ★30-day" if (days and days >= state.long_trial_days) else ""
-        print(f"    ✓ WOULD collect @{bot} [{tag}]{star} — {judged.summary} [{cand.source}]")
+        state.record_filed(bot, ad_days)
+        tag = f"{ad_days}d" if ad_days else "?d"
+        star = " ★30-day" if (ad_days and ad_days >= state.long_trial_days) else ""
+        print(f"    ~ WOULD collect @{bot} [{tag}]{star} — {stage1.summary} [{cand.source}] (UNVERIFIED — ad text only)")
         return
 
-    # --- live path: /start (+token) + mute, then add to folder --------------
+    # --- live path: /start (+token) + mute, unconditionally at this point ---
+    # This IS the verification step (you must interact with the bot to see
+    # its real terms), so the bot is claimed/muted before we know the stage-2
+    # verdict. Matches scripts/probe-bots.py's established behavior.
     state.record_start_attempt()
-    started = await starter.start_and_mute(judged.target_bot or username, start_param=judged.start_param)
+    started = await starter.start_and_mute(stage1.target_bot or username, start_param=stage1.start_param)
     if not started:
         print(f"    ✗ @{bot}: /start failed or rate-limited")
         return
 
     try:
-        entity = await client.get_entity(judged.target_bot or username)
+        entity = await client.get_entity(stage1.target_bot or username)
+    except Exception as exc:  # noqa: BLE001
+        print(f"    ✗ @{bot}: error resolving entity after /start: {exc}")
+        return
+
+    live_text, live_buttons = await fetch_bot_welcome(client, entity)
+
+    stage2 = None
+    if live_text:
+        stage2 = await judge.judge_offer(
+            text=live_text[:1000],
+            channel_id=cand.channel_id,
+            buttons=live_buttons,
+        )
+
+    live_good = stage2 is not None and stage2.is_good_trial and not stage2.scam_suspected
+
+    if not live_good:
+        gate_tag = " (gate suspected)" if _looks_like_gate(live_text) else ""
+        reason = (
+            "no reply from bot" if not live_text
+            else (stage2.summary if stage2 else "live judge failed")
+        )
+        print(f"    ✗ @{bot}: rejected after live check{gate_tag} — ad said {ad_days}d, real: {reason}")
+        # Record so we never re-/start this exact debunked ad text again —
+        # keyed by the ORIGINAL ad-text hash, not the live text.
+        with contextlib.suppress(Exception):
+            await finder_db.record_found_offer(
+                db_path,
+                target_bot=f"@{bot}",
+                offer_hash=offer_hash,
+                source_channel_id=cand.channel_id,
+                source_message_id=cand.message_id,
+                trial_days=stage2.trial_days if stage2 else None,
+                trial_price_rub=stage2.trial_price_rub if stage2 else None,
+                summary=f"REJECTED after live check (ad claimed {ad_days}d): {reason}"[:200],
+                verified_good=False,
+            )
+        return
+
+    # Live verdict agrees the offer is good — file using the VERIFIED terms.
+    live_days = stage2.trial_days
+    if not state.should_file(live_days):
+        print(f"    · skip @{bot} ({live_days}d verified) — quota met, only a 30-day trial left to find")
+        return
+
+    try:
         added = await add_peer_to_folder(
             client, folder, peer_id=entity.id, access_hash=getattr(entity, "access_hash", None)
         )
@@ -153,13 +230,15 @@ async def _process_candidate(
         print(f"    ✗ @{bot}: error adding to folder: {exc}")
         return
 
-    state.record_filed(bot, days)
-    star = " ★30-day" if (days and days >= state.long_trial_days) else ""
+    state.record_filed(bot, live_days)
+    tag = f"{live_days}d" if live_days else "?d"
+    star = " ★30-day" if (live_days and live_days >= state.long_trial_days) else ""
+    mismatch = f" (ad claimed {ad_days}d)" if ad_days != live_days else ""
     if added:
-        print(f"    ✓ collected @{bot} [{tag}]{star} — {judged.summary}")
+        print(f"    ✓ collected @{bot} [{tag}]{star}{mismatch} — {stage2.summary}")
     else:
         # Already in the folder — count as satisfied so we don't loop forever.
-        print(f"    = @{bot} already in folder [{tag}] — {judged.summary}")
+        print(f"    = @{bot} already in folder [{tag}] — {stage2.summary}")
 
     # Record for dedupe regardless of whether the folder add was new — we
     # never want to re-/start or re-judge this exact offer text again.
@@ -170,9 +249,10 @@ async def _process_candidate(
             offer_hash=offer_hash,
             source_channel_id=cand.channel_id,
             source_message_id=cand.message_id,
-            trial_days=days,
-            trial_price_rub=judged.trial_price_rub,
-            summary=judged.summary,
+            trial_days=live_days,
+            trial_price_rub=stage2.trial_price_rub,
+            summary=stage2.summary,
+            verified_good=True,
         )
 
 

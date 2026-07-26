@@ -217,6 +217,13 @@ class FinderScheduler:
                         trial_days=judged.trial_days,
                         trial_price_rub=judged.trial_price_rub,
                         summary=judged.summary,
+                        # NOTE: this passive path judges sponsored-ad text
+                        # directly and has the same "ad copy can lie" gap the
+                        # active harvester's two-stage verification fixes
+                        # (see finder/verify.py) — not yet retrofitted here.
+                        # Marked True to be explicit about that, not to claim
+                        # it was live-verified.
+                        verified_good=True,
                     )
 
         log.info(
