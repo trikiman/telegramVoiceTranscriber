@@ -50,6 +50,7 @@ from tg_voice_transcriber.finder.harvest import (
     iter_channel_feed_matches,
     iter_global_message_matches,
     iter_sponsored_matches,
+    looks_vpnish,
 )
 from tg_voice_transcriber.finder.judge import OfferJudge
 from tg_voice_transcriber.finder.links import parse_tme_target
@@ -141,8 +142,19 @@ async def _process_candidate(
 
     if stage1 is None:
         return
+
+    # A VPN bot whose AD says nothing about a trial is still worth opening.
+    # Most sponsored VPN ads are pure hype ("Глушат интернет? СТАРТ 🔥") and
+    # state their actual terms only inside the bot — refusing to look unless
+    # the ad already promises days is what made this miss real offers a human
+    # finds in minutes. Live verification (below) is the real gate, so here we
+    # only need "is this plausibly a VPN bot at all", which keeps games/crypto
+    # /casino ads out. Costs a /start, so it's bounded by --max-start.
+    speculative = False
     if not stage1.is_good_trial or stage1.scam_suspected:
-        return
+        if stage1.scam_suspected or not looks_vpnish(cand.text, username):
+            return
+        speculative = True
 
     bot = (stage1.target_bot or f"@{username}").lstrip("@")
     ad_days = stage1.trial_days
@@ -162,7 +174,10 @@ async def _process_candidate(
         state.record_filed(bot, ad_days)
         tag = f"{ad_days}d" if ad_days else "?d"
         star = " ★30-day" if (ad_days and ad_days >= state.long_trial_days) else ""
-        print(f"    ~ WOULD collect @{bot} [{tag}]{star} — {stage1.summary} [{cand.source}] (UNVERIFIED — ad text only)")
+        if speculative:
+            print(f"    ? WOULD OPEN @{bot} — ad states no terms, VPN-ish so worth checking [{cand.source}]")
+        else:
+            print(f"    ~ WOULD collect @{bot} [{tag}]{star} — {stage1.summary} [{cand.source}] (UNVERIFIED — ad text only)")
         return
 
     # --- live path: /start (+token) + mute, unconditionally at this point ---
@@ -199,7 +214,8 @@ async def _process_candidate(
             "no reply from bot" if not live_text
             else (stage2.summary if stage2 else "live judge failed")
         )
-        print(f"    ✗ @{bot}: rejected after live check{gate_tag} — ad said {ad_days}d, real: {reason}")
+        claimed = "ad stated no terms" if speculative else f"ad said {ad_days}d"
+        print(f"    ✗ @{bot}: rejected after live check{gate_tag} — {claimed}, real: {reason}")
         # Record so we never re-/start this exact debunked ad text again —
         # keyed by the ORIGINAL ad-text hash, not the live text.
         with contextlib.suppress(Exception):
@@ -233,7 +249,10 @@ async def _process_candidate(
     state.record_filed(bot, live_days)
     tag = f"{live_days}d" if live_days else "?d"
     star = " ★30-day" if (live_days and live_days >= state.long_trial_days) else ""
-    mismatch = f" (ad claimed {ad_days}d)" if ad_days != live_days else ""
+    if speculative:
+        mismatch = " (ad stated no terms — found by opening it)"
+    else:
+        mismatch = f" (ad claimed {ad_days}d)" if ad_days != live_days else ""
     if added:
         print(f"    ✓ collected @{bot} [{tag}]{star}{mismatch} — {stage2.summary}")
     else:
