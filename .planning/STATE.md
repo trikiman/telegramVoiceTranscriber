@@ -1,12 +1,12 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.3
-milestone_name: Active VPN Bot Harvester
+milestone: v1.4
+milestone_name: Live Offer Verification
 current_phase_name: complete
-status: Milestone v1.3 shipped — deployed to VPS, running autonomously daily
-stopped_at: n/a (milestone complete, 2026-07-24)
-last_updated: "2026-07-24T09:35:00.000Z"
-last_activity: 2026-07-24
+status: Milestone v1.4 shipped — two-stage live verification deployed, VPS re-verified
+stopped_at: n/a (milestone complete, 2026-07-26)
+last_updated: "2026-07-26T14:15:00.000Z"
+last_activity: 2026-07-26
 progress:
   total_phases: 1
   completed_phases: 1
@@ -21,19 +21,22 @@ progress:
 See: `.planning/PROJECT.md` (updated 2026-05-15)
 
 **Core value:** Every DM voice note (incoming and outgoing) gets a readable Russian/English transcript posted as a reply within seconds, without any paid service. v1.1 adds an LLM-filtered channel-digest subsystem so the user can follow many channels without notification overload.
-**Current focus:** None — v1.3 shipped. Awaiting next milestone.
+**Current focus:** None — v1.4 shipped. Awaiting next milestone.
 
 ## Current Position
 
-Phase: 9 (Active VPN Bot Harvester) — Complete
-Plan: 09-01 (written + executed 2026-07-24)
-Status: Live-verified, dedupe-hardened, deployed to VPS with a daily systemd
-timer. 152 tests green, ruff clean. Milestone v1.3 fully shipped — the
-harvester now runs autonomously without operator involvement.
-Last activity: 2026-07-24
+Phase: 10 (Live Offer Verification) — Complete
+Plan: 10-01 (written + executed 2026-07-26)
+Status: Two-stage verification (ad text pre-filter + live welcome-screen
+authoritative judge) deployed local + VPS, schema migrated, live-verified —
+a real VPS run correctly rejected all 4 candidates surfaced that day instead
+of blindly filing them. Folder audit swept and corrected (7 bad bots
+removed, 15 legitimate peers remain). 178 tests green.
+Last activity: 2026-07-26
 
 ## Milestone
 
+**Archived:** v1.4 — Live Offer Verification (shipped 2026-07-26)
 **Archived:** v1.3 — Active VPN Bot Harvester (shipped 2026-07-24)
 **Archived:** v1.2 — VPN Trial Finder (shipped 2026-07-23)
 **Archived:** v1.1 — Channel Digest (shipped 2026-05-14)
@@ -52,6 +55,7 @@ Last activity: 2026-07-24
 | 7 | Channel Digest | v1.1 | Complete |
 | 8 | VPN Trial Finder | v1.2 | Complete |
 | 9 | VPN Harvester | v1.3 | Complete (2026-07-24) |
+| 10 | Live Offer Verification | v1.4 | Complete (2026-07-26) |
 
 ## Accumulated Context
 
@@ -64,6 +68,17 @@ Last activity: 2026-07-24
 
 ## Known Issues / Debt
 
+- **v1.3's "5/5 bots collected" was itself later found to be junk** — see
+  HARVEST-06..09 fix below. Recorded here so the lesson isn't lost: "the
+  script ran without errors and filed N bots" is not the same as "the bots
+  are real." Ad/search-snippet text is marketing copy, not ground truth —
+  always verify against the bot's own live screen before trusting a claim.
+- **`finder/scheduler.py`'s passive v1.2 path is not yet retrofitted with
+  live verification** (HARVEST-10, tracked, not yet fixed) — it judges
+  sponsored-ad text directly with the same "ad copy can lie" gap HARVEST-07
+  fixed for the active harvester. Low priority: this path is currently
+  dormant (gated on `finder_phone`/`groq_api_key`, a separate scheduler
+  instance from the harvester's own connection).
 - **v1.3 harvester was never live-verified before 2026-07-24** — prior sessions
   marked HARVEST-01..04 done while the script crashed on import, targeted the
   wrong folder, and had a folder-clobber bug. Fixed + unit-tested in Phase 9;

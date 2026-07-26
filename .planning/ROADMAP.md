@@ -10,6 +10,7 @@ From an empty repo to a hardened systemd-managed userbot on the Oracle VPS that 
 - ✅ **v1.1 Channel Digest** — Phase 7 (shipped 2026-05-14)
 - ✅ **v1.2 VPN Trial Finder** — Phase 8 (shipped 2026-07-23)
 - ✅ **v1.3 Active VPN Bot Harvester** — Phase 9 (shipped 2026-07-24)
+- ✅ **v1.4 Live Offer Verification** — Phase 10 (shipped 2026-07-26)
 
 ## Phases
 
@@ -209,6 +210,48 @@ Plans:
   `tg-voice-harvester.timer` for a fully autonomous daily run. Milestone v1.3
   complete and self-sustaining.)*
 
+### Phase 10: Live Offer Verification (v1.4)
+**Goal**: Fix the harvester's 100%-failure-rate-on-recent-adds bug — ad and
+search-snippet text is unreliable, so verify a candidate's REAL `/start`
+welcome screen before filing it, and reject "free" offers conditional on
+payment or proof-submission.
+**Depends on**: Phase 9
+**Requirements**: HARVEST-06, HARVEST-07, HARVEST-08, HARVEST-09
+**Success Criteria** (what must be TRUE):
+  1. The judge rejects "free" offers gated behind a payment or a proof
+     submission (review screenshot, referral count), not just short/expensive
+     ones.
+  2. A candidate is only filed after its live welcome screen is judged good —
+     ad/search-snippet text is a pre-filter only.
+  3. The sponsored-ad discovery source's real yield is measured with a
+     concrete number, not assumed.
+  4. Bots already in the folder are re-verified and confirmed-bad ones are
+     removed, without wrongly removing bots that merely show account state
+     on a repeat `/start`.
+**Plans**: TBD
+
+Plans:
+- [x] 10-01: Two-stage live verification + conditional-free reject rules.
+  *(2026-07-26: added `finder/verify.py::fetch_bot_welcome` — reads a bot's
+  real `/start` reply, fixing an `m.out`-filter bug ported from
+  `probe-bots.py`. `harvest_vpn_bots.py` now judges twice — ad text as a
+  pre-filter, live welcome screen as the authoritative verdict — and only
+  files using the VERIFIED trial_days. `judge.py` gained explicit reject
+  rules for payment-conditional and proof-conditional "free" offers,
+  spot-checked against the real model. `found_offers` gained a
+  `verified_good` column via a guarded, idempotent migration
+  (`SCHEMA_VERSION` 2), deployed to both local and VPS databases. Live-verified
+  on the VPS: a real run correctly rejected all 4 candidates that day instead
+  of blindly filing them. Sponsored-ad source measured at 31/50 channels
+  (62%) yielding ads — confirmed live, not dead weight. New
+  `scripts/audit-folder-bots.py` re-verifies already-filed bots; caught and
+  fixed a design flaw where re-`/start`ing an already-claimed bot shows
+  account state (not a fresh offer) and would have wrongly removed 14
+  legitimate bots — now kept as a distinct "inconclusive" bucket, never
+  auto-removed. 7 bad bots removed from the live folder this session (4
+  bait-and-switch found manually + 3 confirmed-bad via the sweep); 15
+  legitimate peers remain. 178 tests total, all green.)*
+
 ## Progress
 
 | Phase | Milestone | Plans Complete | Status | Completed |
@@ -222,3 +265,4 @@ Plans:
 | 7. Channel Digest | v1.1 | 1/1 | Complete | 2026-05-14 |
 | 8. VPN Trial Finder | v1.2 | 2/2 | Complete | 2026-07-23 |
 | 9. Active VPN Bot Harvester | v1.3 | 1/1 | Complete | 2026-07-24 |
+| 10. Live Offer Verification | v1.4 | 1/1 | Complete | 2026-07-26 |
