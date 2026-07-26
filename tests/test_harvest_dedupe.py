@@ -292,20 +292,18 @@ async def test_dry_run_only_judges_ad_text_once(db_path):
     assert state.bots_added == 1  # preview counts toward the printed quota
 
 
-async def test_different_offer_text_for_same_bot_is_not_deduped(db_path):
-    """A genuinely new offer for a bot we've seen before (different text/hash)
-    should still be judged and filed — dedupe is keyed on (bot, offer_hash),
-    not bot alone."""
+async def test_same_bot_reworded_ad_does_not_burn_another_start(db_path):
+    """A bot we already opened must not cost a second /start just because its
+    ad was reworded. Dedupe keyed only on (bot, offer_hash) let the same bots
+    reappear as 'new' every run and drained the ban-safety budget before the
+    harvester ever reached an unseen bot."""
     cand1 = Candidate("newvpn_bot", None, "NewVPN 30 дней бесплатно", "global-search")
     cand2 = Candidate("newvpn_bot", None, "NewVPN — special 60 day offer!", "global-search")
 
-    judge1 = _FakeJudge()
-    starter1 = _FakeStarter()
-    state1 = HarvestState(target_count=5, require_30_day=True)
     await harvester._process_candidate(
-        cand1, judge=judge1, starter=starter1, client=_FakeClient(),
-        folder=SimpleNamespace(id=13), state=state1, dry_run=False,
-        db_path=db_path,
+        cand1, judge=_FakeJudge(), starter=_FakeStarter(), client=_FakeClient(),
+        folder=SimpleNamespace(id=13), state=HarvestState(target_count=5),
+        dry_run=False, db_path=db_path,
     )
 
     judge2 = _FakeJudge()
@@ -314,7 +312,32 @@ async def test_different_offer_text_for_same_bot_is_not_deduped(db_path):
     await harvester._process_candidate(
         cand2, judge=judge2, starter=starter2, client=_FakeClient(),
         folder=SimpleNamespace(id=13), state=state2, dry_run=False,
-        db_path=db_path,
+        db_path=db_path, recheck_days=14,
+    )
+
+    assert judge2.calls == 0
+    assert starter2.started == []  # budget preserved for genuinely unseen bots
+    assert state2.bots_added == 0
+
+
+async def test_bot_is_reexamined_once_the_recheck_window_lapses(db_path):
+    """The skip is a staleness window, not a permanent ban — offers do change,
+    so with recheck_days=0 the bot is opened and judged again."""
+    cand1 = Candidate("newvpn_bot", None, "NewVPN 30 дней бесплатно", "global-search")
+    cand2 = Candidate("newvpn_bot", None, "NewVPN — new 60 day promo!", "global-search")
+
+    await harvester._process_candidate(
+        cand1, judge=_FakeJudge(), starter=_FakeStarter(), client=_FakeClient(),
+        folder=SimpleNamespace(id=13), state=HarvestState(target_count=5),
+        dry_run=False, db_path=db_path,
+    )
+
+    judge2 = _FakeJudge()
+    starter2 = _FakeStarter()
+    await harvester._process_candidate(
+        cand2, judge=judge2, starter=starter2, client=_FakeClient(),
+        folder=SimpleNamespace(id=13), state=HarvestState(target_count=5),
+        dry_run=False, db_path=db_path, recheck_days=0,
     )
 
     assert judge2.calls == 2  # stage-1 + stage-2, same as any fresh candidate

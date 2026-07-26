@@ -95,6 +95,9 @@ def _parse_args() -> argparse.Namespace:
                    help="Max bots to follow that were advertised inside other bots.")
     p.add_argument("--no-chain", action="store_true",
                    help="Disable following bots advertised inside other bots.")
+    p.add_argument("--recheck-days", type=int, default=14,
+                   help="Skip bots already opened within this many days, no "
+                        "matter how their ad was reworded (saves /start budget).")
     p.add_argument("--no-search", action="store_true", help="Disable global search source.")
     p.add_argument("--no-feeds", action="store_true", help="Disable channel-feed source.")
     p.add_argument("--no-sponsored", action="store_true", help="Disable sponsored-ad source.")
@@ -112,6 +115,7 @@ async def _process_candidate(
     dry_run: bool,
     db_path,
     chain_out: list[Candidate] | None = None,
+    recheck_days: int = 14,
 ) -> None:
     """Judge one candidate, verify it live, and file it if it holds up.
 
@@ -136,6 +140,9 @@ async def _process_candidate(
 
     offer_hash = finder_db.compute_offer_hash(cand.text)
     if await finder_db.offer_already_found(db_path, f"@{username}", offer_hash):
+        return
+    # Same bot, reworded ad → same bot. Don't spend a /start re-learning it.
+    if await finder_db.bot_examined_within(db_path, f"@{username}", recheck_days):
         return
 
     link_target = parse_tme_target(cand.build_url(), button_text=cand.button_text)
@@ -366,14 +373,19 @@ async def main() -> int:
         max_start_attempts=args.max_start,
     )
 
-    # Build the enabled discovery sources in priority order.
+    # Sources run FRESHEST FIRST. The /start budget is small and whichever
+    # source runs first consumes it, so ordering decides what we ever see.
+    # Sponsored ads rotate daily and carry campaigns that exist nowhere else;
+    # global message search mostly re-surfaces the same bots our own channels
+    # have advertised for weeks, so it goes last as a backfill rather than
+    # eating the budget before the fresh sources get a turn.
     sources: list[tuple[str, object]] = []
-    if not args.no_search:
-        sources.append(("global-search", iter_global_message_matches(client)))
-    if not args.no_feeds:
-        sources.append(("channel-feed", iter_channel_feed_matches(client, max_channels=args.max_channels)))
     if not args.no_sponsored:
         sources.append(("sponsored", iter_sponsored_matches(client, max_channels=args.max_channels)))
+    if not args.no_feeds:
+        sources.append(("channel-feed", iter_channel_feed_matches(client, max_channels=args.max_channels)))
+    if not args.no_search:
+        sources.append(("global-search", iter_global_message_matches(client)))
 
     chain_queue: list[Candidate] = [] if not args.no_chain else None
 
@@ -400,6 +412,7 @@ async def main() -> int:
                     cand, judge=judge, starter=starter, client=client,
                     folder=folder, state=state, dry_run=args.dry_run,
                     db_path=cfg.finder_db_path, chain_out=chain_queue,
+                    recheck_days=args.recheck_days,
                 )
         except Exception as exc:  # noqa: BLE001
             log.warning("source_failed", source=source_name, error=str(exc))
@@ -430,6 +443,7 @@ async def main() -> int:
                 chain_queue.pop(0), judge=judge, starter=starter, client=client,
                 folder=folder, state=state, dry_run=args.dry_run,
                 db_path=cfg.finder_db_path, chain_out=chain_queue,
+                    recheck_days=args.recheck_days,
             )
 
     # --- summary -----------------------------------------------------------

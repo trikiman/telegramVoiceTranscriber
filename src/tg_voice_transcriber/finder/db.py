@@ -211,6 +211,28 @@ async def offer_already_found(path: Path, target_bot: str, offer_hash: str) -> b
         return (await cur.fetchone()) is not None
 
 
+async def bot_examined_within(path: Path, target_bot: str, days: int) -> bool:
+    """True if this BOT was live-examined within the last ``days``.
+
+    Distinct from :func:`offer_already_found`, which keys on (bot, offer_hash)
+    and therefore treats the same bot re-advertised with reworded copy as a
+    brand-new candidate — burning a `/start` from the ban-safety budget to
+    re-learn what we already know. A bot's actual terms rarely change, so once
+    we've opened it we skip it for a while regardless of ad wording, leaving
+    the budget for genuinely unseen bots.
+    """
+    import aiosqlite
+
+    async with aiosqlite.connect(str(path)) as db:
+        cur = await db.execute(
+            "SELECT 1 FROM found_offers "
+            " WHERE target_bot = ? AND found_at > strftime('%s','now') - ? "
+            " LIMIT 1",
+            (target_bot, days * 86400),
+        )
+        return (await cur.fetchone()) is not None
+
+
 async def record_found_offer(
     path: Path,
     target_bot: str,
