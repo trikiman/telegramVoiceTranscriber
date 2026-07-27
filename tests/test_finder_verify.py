@@ -140,3 +140,113 @@ async def test_collects_button_labels_from_welcome_message() -> None:
     )
     assert text == "Нажмите кнопку ниже"
     assert buttons == ["Получить прокси", "Ещё один"]
+
+
+# --- subscribe-gate pass-through -------------------------------------------
+# Some bots hide their offer behind "join this channel first". Refusing to
+# pass that gate means the real terms are never seen and the bot is rejected
+# unread. We pass it — and MUTE every channel we join, per the standing rule.
+
+from tg_voice_transcriber.finder import verify as _verify  # noqa: E402
+from tg_voice_transcriber.finder.verify import (  # noqa: E402
+    _is_joined_button,
+    pass_subscribe_gate,
+)
+
+
+class _UrlBtn:
+    def __init__(self, text: str, url: str) -> None:
+        self.text = text
+        self.url = url
+        self.data = None
+
+
+class _CbBtn:
+    def __init__(self, text: str, data: bytes | None = None) -> None:
+        self.text = text
+        self.data = data
+        self.url = None
+
+
+class _GateMsg:
+    def __init__(self, buttons: list) -> None:
+        self.reply_markup = _Markup([_Row(buttons)])
+        self.clicked: dict | None = None
+
+    async def click(self, **kwargs):
+        self.clicked = kwargs
+
+
+class _GateClient:
+    def __init__(self) -> None:
+        self.joined: list[str] = []
+        self.requests: list = []
+
+    async def get_entity(self, uname):
+        return SimpleNamespace(id=hash(uname) % 10_000, username=uname)
+
+    async def __call__(self, request):
+        self.requests.append(request)
+        return True
+
+
+def test_recognises_joined_button_in_multiple_languages() -> None:
+    assert _is_joined_button(_CbBtn("✅ Я подписался"))
+    assert _is_joined_button(_CbBtn("I subscribed"))
+    # Persian — the case a Russian-only marker list silently missed.
+    assert _is_joined_button(_CbBtn("✅ عضو شدم"))
+    # Callback payload alone is enough, whatever the label says.
+    assert _is_joined_button(_CbBtn("🔄", data=b"check_join"))
+    # A plain join-the-channel link is NOT the confirmation button.
+    assert not _is_joined_button(_UrlBtn("📢 Our channel", "https://t.me/somechan"))
+
+
+@pytest.mark.asyncio
+async def test_gate_joins_and_mutes_channel_then_confirms(monkeypatch) -> None:
+    muted: list = []
+
+    async def _fake_mute(_client, peer):
+        muted.append(getattr(peer, "username", peer))
+        return True
+
+    monkeypatch.setattr(_verify, "mute_peer", _fake_mute)
+
+    msg = _GateMsg([
+        _UrlBtn("📢 عضویت در کانال", "https://t.me/required_chan"),
+        _CbBtn("✅ عضو شدم", data=b"check_join"),
+    ])
+    client = _GateClient()
+
+    passed = await pass_subscribe_gate(client, SimpleNamespace(username="gated_bot"), msg)
+
+    assert passed is True
+    assert muted == ["required_chan"], "the gate channel must be muted, not just joined"
+    assert msg.clicked == {"data": b"check_join"}
+
+
+@pytest.mark.asyncio
+async def test_no_gate_means_no_action(monkeypatch) -> None:
+    """An ordinary welcome screen must not be mistaken for a gate."""
+    monkeypatch.setattr(_verify, "mute_peer", lambda *a, **k: None)
+    msg = _GateMsg([_CbBtn("Получить пробные 10 дней", data=b"trial")])
+    client = _GateClient()
+    assert await pass_subscribe_gate(client, SimpleNamespace(username="b"), msg) is False
+    assert msg.clicked is None
+
+
+@pytest.mark.asyncio
+async def test_private_invite_links_are_skipped(monkeypatch) -> None:
+    """+hash invite links need importChatInvite; skip rather than guess."""
+    joined: list = []
+
+    async def _fake_mute(_c, peer):
+        joined.append(peer)
+        return True
+
+    monkeypatch.setattr(_verify, "mute_peer", _fake_mute)
+    msg = _GateMsg([
+        _UrlBtn("channel", "https://t.me/+AbCdEf123"),
+        _CbBtn("✅ Я подписался", data=b"check_join"),
+    ])
+    await pass_subscribe_gate(_GateClient(), SimpleNamespace(username="b"), msg)
+    assert joined == []  # nothing joined, but the confirm click still happened
