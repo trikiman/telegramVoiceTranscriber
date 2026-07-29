@@ -23,8 +23,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import random
 import re
 import sys
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -60,10 +62,26 @@ _UA = (
 )
 
 
-def _fetch(url: str, timeout: float = 20.0) -> str:
-    req = urllib.request.Request(url, headers={"User-Agent": _UA})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
-        return resp.read().decode("utf-8", errors="ignore")
+def _fetch(url: str, timeout: float = 25.0, attempts: int = 3) -> str:
+    """Fetch with retries — the catalog rate-limits a fast query sweep.
+
+    Sweeping all queries back-to-back makes tgramsearch drop the SSL handshake
+    partway through, and the first version of this script treated that as "no
+    bots found": a 7-query sweep reported 0 candidates while a single query
+    returned 22. Silent fetch failure looks identical to an empty catalog, so
+    retry with backoff and let the caller distinguish the two.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(attempts):
+        if attempt:
+            time.sleep(2.0 * attempt)
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": _UA})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+                return resp.read().decode("utf-8", errors="ignore")
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+    raise last_exc if last_exc else RuntimeError("fetch failed")
 
 
 def _looks_like_service_bot(username: str) -> bool:
@@ -84,11 +102,17 @@ def main() -> int:
     found: dict[str, str] = {}   # lowercased -> original casing
     skipped: set[str] = set()
 
-    for query in queries:
+    failed: list[str] = []
+    for i, query in enumerate(queries):
+        if i:
+            # Pacing, not politeness theatre: back-to-back queries get the
+            # handshake dropped, which costs more time than waiting.
+            time.sleep(random.uniform(3.0, 5.0))
         url = SEARCH_URL.format(urllib.parse.quote_plus(query))
         try:
             html = _fetch(url)
         except Exception as exc:  # noqa: BLE001
+            failed.append(query)
             print(f"  ! {query!r}: fetch failed ({type(exc).__name__})", file=sys.stderr)
             continue
 
@@ -109,6 +133,14 @@ def main() -> int:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     names = sorted(found.values(), key=str.lower)
     out_path.write_text("\n".join(names) + "\n", encoding="utf-8")
+
+    if failed:
+        # Loud on purpose: an all-failed sweep prints "0 candidates", which
+        # reads exactly like a genuinely empty catalog unless we say otherwise.
+        print(f"\n⚠ {len(failed)}/{len(queries)} quer(ies) failed to fetch: "
+              f"{', '.join(repr(q) for q in failed)}")
+        if not names:
+            print("  0 candidates below is a FETCH FAILURE, not an empty catalog.")
 
     print(f"\n=== {len(names)} candidate bot(s) -> {out_path} ===")
     for n in names:
